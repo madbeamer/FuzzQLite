@@ -1,0 +1,17 @@
+services:
+    # Main service for running the fuzzer
+    fuzzqlite:
+        platform: linux/amd64
+        build: .
+        entrypoint: python3 /app/src/main.py
+        container_name: fuzzqlite-run
+
+    # Service for bash shell access
+    shell:
+        platform: linux/amd64
+        build: .
+        entrypoint: /bin/bash
+        # Interactive mode
+        stdin_open: true
+        tty: true
+        container_name: fuzzqlite-shell
