@@ -2,15 +2,11 @@
 """
 Base Fuzzer Class
 
-This module defines the abstract base class for all fuzzers in the system,
-based on examples from fuzzingbook.org and adapted for SQLite fuzzing.
+This module defines the abstract base class for all fuzzers.
 """
 
 import abc
-import subprocess
-from typing import List, Optional, Tuple, Any, Dict
-
-from utils.base_runner import Runner, PrintRunner, Outcome
+from typing import List, Optional, Tuple, Union
 
 
 class Fuzzer(abc.ABC):
@@ -32,39 +28,14 @@ class Fuzzer(abc.ABC):
         self.corpus = []
     
     @abc.abstractmethod
-    def fuzz(self) -> str:
+    def fuzz(self) -> Union[str, Tuple[str, str]]:
         """
         Generate a fuzz input.
         
         Returns:
-            A string containing the fuzzed input
+            A tuple containing (db_path, mutated_sql_query)
         """
-        return ""
-    
-    def run(self, runner: Runner) -> Tuple[subprocess.CompletedProcess, str]:
-        """
-        Run `runner` with fuzz input.
-        
-        Args:
-            runner: The runner to execute the fuzzing input
-            
-        Returns:
-            A tuple containing the process result and outcome
-        """
-        return runner.run(self.fuzz())
-    
-    def runs(self, runner: Runner = PrintRunner(), trials: int = 10) -> List[Tuple[subprocess.CompletedProcess, str]]:
-        """
-        Run `runner` with fuzz input, `trials` times.
-        
-        Args:
-            runner: The runner to execute the fuzzing input
-            trials: Number of times to run the fuzzer
-            
-        Returns:
-            A list of tuples containing the process results and outcomes
-        """
-        return [self.run(runner) for i in range(trials)]
+        return "", ""
     
     def add_to_corpus(self, item: str) -> None:
         """
