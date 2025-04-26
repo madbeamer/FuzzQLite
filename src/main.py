@@ -1,24 +1,26 @@
 #!/usr/bin/env python3
 """
-SQLite Fuzzer Main Entry Point
+FuzzQLite Main Entry Point
 
-This script serves as the entry point for the SQLite fuzzer application
+This script serves as the entry point for the FuzzQLite application
 designed to test different versions of SQLite (3.26.0 and 3.39.4) against
-the latest version to identify crashes and logic bugs.
+the latest version (3.49.1) to identify crashes and logic bugs.
 """
 
 import argparse
 import sys
 import os
-from typing import List, Dict, Any
+from typing import List
 
 from fuzzer.mutation_fuzzer import MutationFuzzer
 from fuzzer.generation_fuzzer import GenerationFuzzer
-from utils.sqlite_runner import SQLiteRunner, SQLiteOutcome
-from mutations.dummy_mutation import CapitalizeMutation
-from mutations.sql_mutations import SQLRandomizeMutation
+from utils.runners.sqlite_runner import SQLiteRunner
+from utils.bug_tracker import BugTracker
+from utils.generators.db_generator import DatabaseGenerator
+from utils.generators.corpus_generator import CorpusGenerator
+# from mutations.identity_mutation import IdentityMutation
+from mutations.sql_randomize_mutation import SQLRandomizeMutation
 
-from utils.base_runner import PrintRunner
 
 # Available SQLite versions for testing
 SQLITE_VERSIONS = {
@@ -27,7 +29,7 @@ SQLITE_VERSIONS = {
 }
 
 # Reference SQLite version
-REFERENCE_SQLITE = "/usr/bin/sqlite3-latest"
+REFERENCE_SQLITE = "/usr/bin/sqlite3-3.49.1"
 
 
 def parse_args(args: List[str]) -> argparse.Namespace:
@@ -40,7 +42,7 @@ def parse_args(args: List[str]) -> argparse.Namespace:
     Returns:
         Parsed arguments
     """
-    parser = argparse.ArgumentParser(description="SQLite Fuzzer for academic project")
+    parser = argparse.ArgumentParser(description="FuzzQLite - SQLite Fuzzer")
     
     parser.add_argument(
         "--mode",
@@ -54,12 +56,6 @@ def parse_args(args: List[str]) -> argparse.Namespace:
         choices=list(SQLITE_VERSIONS.keys()),
         default="3.26.0",
         help="SQLite version to test (default: 3.26.0)"
-    )
-    
-    parser.add_argument(
-        "--db-path",
-        default=":memory:",
-        help="Path to the database file (default: :memory:)"
     )
     
     parser.add_argument(
@@ -77,13 +73,21 @@ def parse_args(args: List[str]) -> argparse.Namespace:
     )
     
     parser.add_argument(
-        "--corpus",
-        nargs="+",
-        default=["SELECT * FROM sqlite_master;", 
-                 "CREATE TABLE test (id INTEGER PRIMARY KEY, name TEXT);",
-                 "INSERT INTO test VALUES (1, 'test');",
-                 "SELECT * FROM test;"],
-        help="Initial corpus of SQL inputs"
+        "--bugs-dir",
+        default="bug_reproducers",
+        help="Directory to save bug reproducers (default: bug_reproducers)"
+    )
+    
+    parser.add_argument(
+        "--databases-dir",
+        default="databases",
+        help="Directory for generated databases (default: databases)"
+    )
+    
+    parser.add_argument(
+        "--regenerate-dbs",
+        action="store_true",
+        help="Regenerate the database files"
     )
     
     return parser.parse_args(args)
@@ -91,7 +95,7 @@ def parse_args(args: List[str]) -> argparse.Namespace:
 
 def main(args: List[str] = None) -> int:
     """
-    Main entry point for the SQLite fuzzer.
+    Main entry point for FuzzQLite.
     
     Args:
         args: Command line arguments
@@ -105,9 +109,9 @@ def main(args: List[str] = None) -> int:
     parsed_args = parse_args(args)
     
     # Check if the selected SQLite version exists
-    sqlite_path = SQLITE_VERSIONS[parsed_args.version]
-    if not os.path.exists(sqlite_path):
-        print(f"Error: SQLite binary not found at {sqlite_path}")
+    target_sqlite_path = SQLITE_VERSIONS[parsed_args.version]
+    if not os.path.exists(target_sqlite_path):
+        print(f"Error: SQLite binary not found at {target_sqlite_path}")
         return 1
         
     # Check if the reference SQLite version exists
@@ -115,66 +119,81 @@ def main(args: List[str] = None) -> int:
         print(f"Error: Reference SQLite binary not found at {REFERENCE_SQLITE}")
         return 1
     
-    # Create a runner
-    # runner = SQLiteRunner(
-    #     sqlite_path=sqlite_path,
-    #     reference_sqlite_path=REFERENCE_SQLITE,
-    #     db_path=parsed_args.db_path
-    # )
-    runner = PrintRunner()
+    # Generate or regenerate databases
+    db_generator = DatabaseGenerator(db_dir=parsed_args.databases_dir)
+    
+    # Check if databases need to be generated
+    db_files = []
+    if os.path.exists(parsed_args.databases_dir):
+        db_files = [f for f in os.listdir(parsed_args.databases_dir) if f.endswith('.db')]
+    
+    if parsed_args.regenerate_dbs or not db_files:
+        db_paths = db_generator.generate_databases()
+    else:
+        db_paths = [
+            os.path.join(parsed_args.databases_dir, db_file)
+            for db_file in db_files
+        ]
+
+    # Generate seed corpus
+    corpus_generator = CorpusGenerator()
+    seed_corpus = corpus_generator.generate_seed_corpus()
+    
+    # Create a runner with improved display
+    runner = SQLiteRunner(
+        target_sqlite_path=target_sqlite_path,
+        reference_sqlite_path=REFERENCE_SQLITE
+    )
+    
+    # Create a bug tracker to save reproducers
+    bug_tracker = BugTracker(output_dir=parsed_args.bugs_dir)
     
     # Create a fuzzer based on the selected mode
     if parsed_args.mode == "mutation":
         fuzzer = MutationFuzzer(
             seed=parsed_args.seed,
-            # mutations=[CapitalizeMutation(), SQLRandomizeMutation()]
+            mutations=[SQLRandomizeMutation()], # IdentityMutation()
+            db_paths=db_paths
         )
     else:  # generation mode
         fuzzer = GenerationFuzzer(seed=parsed_args.seed)
     
     # Load the corpus
-    fuzzer.load_corpus(parsed_args.corpus)
+    fuzzer.load_corpus(seed_corpus)
     
-    # Run the fuzzer
-    results = fuzzer.runs(runner=runner, trials=parsed_args.trials)
-    
-    # Track statistics
-    stats = {
-        "PASS": 0,
-        "FAIL": 0,
-        "CRASH": 0,
-        "LOGIC_BUG": 0,
-        "UNRESOLVED": 0
-    }
-    
-    # Print results
-    print(f"\nTesting SQLite version {parsed_args.version} ({sqlite_path})")
-    print(f"Reference version: {REFERENCE_SQLITE}\n")
-    
-    for i, (process, outcome) in enumerate(results):
-        stats[outcome] = stats.get(outcome, 0) + 1
+    try:
+        # Start the fuzzing session with real-time display
+        runner.start_fuzzing_session(
+            total_trials=parsed_args.trials,
+            mode=parsed_args.mode,
+            version=parsed_args.version
+        )
         
-        print(f"Trial {i+1}: {outcome}")
+        # Run the fuzzer iteratively to update display in real-time
+        for _ in range(parsed_args.trials):
+            # Get the next input
+            input_data = fuzzer.fuzz()
+            
+            # Run the input and get result
+            result = runner.run(input_data)
+            
+            # Record the result with bug tracking
+            runner.record_result(result, bug_tracker=bug_tracker)
+            
+        # Finish the fuzzing session with final stats
+        runner.finish_fuzzing_session(bug_tracker=bug_tracker)
         
-        # Print additional information based on outcome
-        if outcome == SQLiteOutcome.CRASH:
-            print(f"  CRASH detected!")
-            print(f"  Stderr: {process.stderr}")
-        elif outcome == SQLiteOutcome.LOGIC_BUG:
-            print(f"  LOGIC BUG detected!")
-            print(f"  Target output: {process.stdout}")
-            print(f"  Reference output: {process.reference_stdout}")
-        elif outcome != SQLiteOutcome.PASS:
-            print(f"  Stderr: {process.stderr}")
-    
-    # Print summary
-    print("\nSummary:")
-    for outcome, count in stats.items():
-        if count > 0:
-            print(f"  {outcome}: {count}")
+    except KeyboardInterrupt:
+        print("\nFuzzing interrupted by user.")
+        # Still show summary of findings so far
+        runner.finish_fuzzing_session(bug_tracker=bug_tracker)
+    finally:
+        # Cleanup resources
+        runner.cleanup()
     
     return 0
 
 
 if __name__ == "__main__":
     sys.exit(main())
+    
