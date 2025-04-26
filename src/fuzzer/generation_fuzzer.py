@@ -6,6 +6,7 @@ This module will implement a generation-based fuzzer for SQLite.
 This is currently a placeholder for future implementation.
 """
 
+from typing import Tuple
 from fuzzer.base_fuzzer import Fuzzer
 
 
@@ -17,12 +18,12 @@ class GenerationFuzzer(Fuzzer):
     This is a placeholder for future implementation.
     """
     
-    def fuzz(self) -> str:
+    def fuzz(self) -> Tuple[str, str]:
         """
         Generate a fuzz input from scratch.
         
         Returns:
-            A string containing the fuzzed input
+            A tuple containing (db_path, sql_query)
         """
-        return "-- Generation-based fuzzing not yet implemented"
+        return "", "-- Generation-based fuzzing not yet implemented"
     
