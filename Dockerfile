@@ -7,7 +7,7 @@ USER root
 # Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
-ENV PYTHONPATH=/app
+ENV PYTHONPATH=/app/src
 
 # Install any additional dependencies
 RUN apt-get update && apt-get install -y \
@@ -24,10 +24,14 @@ RUN wget https://www.sqlite.org/2025/sqlite-autoconf-3490100.tar.gz && \
     tar -xzf sqlite-autoconf-3490100.tar.gz && \
     cd sqlite-autoconf-3490100 && \
     ./configure && make && make install && \
-    cp /usr/local/bin/sqlite3 /usr/bin/sqlite3-latest
+    cp /usr/local/bin/sqlite3 /usr/bin/sqlite3-3.49.1
+
 
 # Create app directory
 WORKDIR /app
+
+# Create necessary directories for outputs
+RUN mkdir -p /app/bug_reproducers /app/databases
 
 # Copy requirements and install Python dependencies
 COPY requirements.txt .
