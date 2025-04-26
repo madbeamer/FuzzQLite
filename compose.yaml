@@ -5,6 +5,12 @@ services:
         build: .
         entrypoint: python3 /app/src/main.py
         container_name: fuzzqlite-run
+        volumes:
+            - ./bug_reproducers:/app/bug_reproducers
+            - ./databases:/app/databases
+        environment:
+            - PYTHONPATH=/app/src
+        working_dir: /app
 
     # Service for bash shell access
     shell:
@@ -15,3 +21,10 @@ services:
         stdin_open: true
         tty: true
         container_name: fuzzqlite-shell
+        volumes:
+            - ./bug_reproducers:/app/bug_reproducers
+            - ./databases:/app/databases
+        environment:
+            - PYTHONPATH=/app/src
+        working_dir: /app
+        
