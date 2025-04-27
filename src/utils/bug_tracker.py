@@ -1,15 +1,9 @@
-#!/usr/bin/env python3
-"""
-Bug Tracker Utility
-
-This module provides functions to track and store reproducers for found bugs.
-"""
-
 import os
 import datetime
 import shutil
 from typing import Dict, Any
-from utils.runners.base_runner import Outcome
+
+from runner.outcome import Outcome
 
 class BugTracker:
     """

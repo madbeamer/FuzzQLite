@@ -1,25 +1,13 @@
-#!/usr/bin/env python3
-"""
-FuzzQLite Main Entry Point
-
-This script serves as the entry point for the FuzzQLite application
-designed to test different versions of SQLite (3.26.0 and 3.39.4) against
-the latest version (3.49.1) to identify crashes and logic bugs.
-"""
-
 import argparse
 import sys
 import os
 from typing import List
 
-from fuzzer.mutation_fuzzer import MutationFuzzer
-from fuzzer.generation_fuzzer import GenerationFuzzer
-from utils.runners.sqlite_runner import SQLiteRunner
-from utils.bug_tracker import BugTracker
-from utils.generators.db_generator import DatabaseGenerator
-from utils.generators.corpus_generator import CorpusGenerator
-# from mutations.identity_mutation import IdentityMutation
-from mutations.sql_randomize_mutation import SQLRandomizeMutation
+from fuzzer import MutationFuzzer
+from runner import SQLiteRunner
+from utils import QueryGenerator, DBGenerator, BugTracker
+# from mutator import IdentityMutation
+from mutator import SQLRandomizeMutation
 
 
 # Available SQLite versions for testing
@@ -43,13 +31,6 @@ def parse_args(args: List[str]) -> argparse.Namespace:
         Parsed arguments
     """
     parser = argparse.ArgumentParser(description="FuzzQLite - SQLite Fuzzer")
-    
-    parser.add_argument(
-        "--mode",
-        choices=["mutation", "generation"],
-        default="mutation",
-        help="Fuzzing mode (default: mutation)"
-    )
     
     parser.add_argument(
         "--version",
@@ -120,7 +101,7 @@ def main(args: List[str] = None) -> int:
         return 1
     
     # Generate or regenerate databases
-    db_generator = DatabaseGenerator(db_dir=parsed_args.databases_dir)
+    db_generator = DBGenerator(db_dir=parsed_args.databases_dir)
     
     # Check if databases need to be generated
     db_files = []
@@ -136,8 +117,8 @@ def main(args: List[str] = None) -> int:
         ]
 
     # Generate seed corpus
-    corpus_generator = CorpusGenerator()
-    seed_corpus = corpus_generator.generate_seed_corpus()
+    query_generator = QueryGenerator()
+    seed_queries = query_generator.generate_seed_queries()
     
     # Create a runner with improved display
     runner = SQLiteRunner(
@@ -148,24 +129,20 @@ def main(args: List[str] = None) -> int:
     # Create a bug tracker to save reproducers
     bug_tracker = BugTracker(output_dir=parsed_args.bugs_dir)
     
-    # Create a fuzzer based on the selected mode
-    if parsed_args.mode == "mutation":
-        fuzzer = MutationFuzzer(
-            seed=parsed_args.seed,
-            mutations=[SQLRandomizeMutation()], # IdentityMutation()
-            db_paths=db_paths
-        )
-    else:  # generation mode
-        fuzzer = GenerationFuzzer(seed=parsed_args.seed)
-    
+    # Create the fuzzer
+    fuzzer = MutationFuzzer(
+        seed=parsed_args.seed,
+        mutations=[SQLRandomizeMutation()], # IdentityMutation()
+        db_paths=db_paths
+    )
+
     # Load the corpus
-    fuzzer.load_corpus(seed_corpus)
+    fuzzer.load_corpus(seed_queries)
     
     try:
         # Start the fuzzing session with real-time display
         runner.start_fuzzing_session(
             total_trials=parsed_args.trials,
-            mode=parsed_args.mode,
             version=parsed_args.version
         )
         

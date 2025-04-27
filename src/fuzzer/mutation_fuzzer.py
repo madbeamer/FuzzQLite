@@ -1,36 +1,27 @@
-#!/usr/bin/env python3
-"""
-Mutation Fuzzer
-
-This module implements a mutation-based fuzzer for SQLite.
-"""
-
 import random
 from typing import List, Optional, Tuple
 
-from fuzzer.base_fuzzer import Fuzzer
-from mutations.base_mutation import Mutation
-from mutations.identity_mutation import IdentityMutation
-# from utils.sqlite_validator import SQLiteValidator
+from mutator import Mutator, IdentityMutation
 
 
-class MutationFuzzer(Fuzzer):
+class MutationFuzzer:
     """
     A fuzzer that mutates existing inputs to generate new test cases.
     """
     
     def __init__(self, seed: Optional[int] = None, 
-                 mutations: Optional[List[Mutation]] = None,
+                 mutations: Optional[List[Mutator]] = None,
                  db_paths: Optional[List[str]] = None):
         """
         Initialize the mutation fuzzer.
         
         Args:
             seed: Optional seed for random number generation
-            mutations: List of mutation operators to use
+            mutations: List of mutator to use
             db_paths: List of database file paths to use
         """
-        super().__init__(seed=seed)
+        self.seed = seed
+        self.corpus = []
         
         if mutations is None:
             self.mutations = [IdentityMutation()]
@@ -41,7 +32,7 @@ class MutationFuzzer(Fuzzer):
         self.db_paths = db_paths if db_paths else []
         
         # FIXME: We might validate the queries later
-        # # Initialize validator
+        # Initialize validator
         # self.validator = SQLiteValidator()
             
         # Set the random seed if provided
@@ -59,29 +50,29 @@ class MutationFuzzer(Fuzzer):
             # Return empty defaults if no corpus or databases
             return "", ""
         
-        # Select a random database
-        db_path = random.choice(self.db_paths)
-        
-        # Try up to 10 times to generate a valid mutated query
-        for _ in range(10):
-            seed_query = random.choice(self.corpus)
-            
-            mutation = random.choice(self.mutations)
-        
-            mutated_query = mutation.mutate(seed_query)
-            return db_path, mutated_query
 
-            # FIXME: We might validate the queries later
-            # Validate the mutated query
-            # is_valid, error = self.validator.validate_query(mutated_query)
-            # if is_valid:
-                # return db_path, mutated_query
-        
-        # If we couldn't generate a valid mutation, return the original query
-        return db_path, seed_query
+        db_path = random.choice(self.db_paths)
+        seed_query = random.choice(self.corpus)
+
+        mutation = random.choice(self.mutations)
+        mutated_query = mutation.mutate(seed_query)
+
+        return db_path, mutated_query
     
-    def __del__(self):
-        """Clean up resources."""
-        # FIXME: We might validate the queries later
-        # self.validator.close()
-        pass
+    def add_to_corpus(self, item: str) -> None:
+        """
+        Add an item to the corpus.
+        
+        Args:
+            item: String to add to corpus
+        """
+        self.corpus.append(item)
+    
+    def load_corpus(self, corpus_items: List[str]) -> None:
+        """
+        Load multiple items into the corpus.
+        
+        Args:
+            corpus_items: List of strings to add to corpus
+        """
+        self.corpus.extend(corpus_items)

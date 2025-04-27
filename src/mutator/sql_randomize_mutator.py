@@ -1,18 +1,10 @@
-#!/usr/bin/env python3
-"""
-SQL-specific Mutations
-
-This module implements SQL-specific mutations for fuzzing SQLite.
-"""
-
 import random
 import re
 
-from mutations.base_mutation import Mutation
-from utils.sqlite_validator import SQLiteValidator
+from mutator import Mutator
 
 
-class SQLRandomizeMutation(Mutation):
+class SQLRandomizeMutation(Mutator):
     """
     A mutation that modifies parts of SQL queries to trigger bugs.
     
@@ -26,7 +18,6 @@ class SQLRandomizeMutation(Mutation):
     def __init__(self):
         """Initialize the SQL randomize mutation."""
         super().__init__()
-        self.validator = SQLiteValidator()
         
         self.sql_keywords = [
             "SELECT", "FROM", "WHERE", "GROUP BY", "HAVING", "ORDER BY",
@@ -56,7 +47,7 @@ class SQLRandomizeMutation(Mutation):
             input_data: The input SQL to mutate
             
         Returns:
-            The mutated SQL string or original if mutation produces invalid SQL
+            The mutated SQL string
         """
         # Choose a random mutation strategy
         strategies = [
@@ -70,18 +61,10 @@ class SQLRandomizeMutation(Mutation):
             self._toggle_all_some_any
         ]
 
-        # Try up to 3 different strategies if the first ones produce invalid SQL
-        for _ in range(3):
-            strategy = random.choice(strategies)
-            mutated_sql = strategy(input_data)
-            
-            # Validate the mutated SQL
-            is_valid, error = self.validator.validate_query(mutated_sql)
-            if is_valid:
-                return mutated_sql
+        strategy = random.choice(strategies)
+        mutated_sql = strategy(input_data)
         
-        # If all attempts fail, return the original SQL
-        return input_data
+        return mutated_sql
     
     def _flip_quotes(self, input_data: str) -> str:
         """Change single quotes to double quotes or vice versa."""
@@ -108,7 +91,8 @@ class SQLRandomizeMutation(Mutation):
             lambda x: str(-int(x)),       # Negate
             lambda x: str(2**31 - 1),     # MAX_INT
             lambda x: str(-2**31),        # MIN_INT
-            lambda x: "0"                 # Zero
+            lambda x: "0",                # Zero
+            lambda x: "-0"                # Negative Zero
         ]
         
         new_num = random.choice(strategies)(num_to_change)
@@ -232,7 +216,3 @@ class SQLRandomizeMutation(Mutation):
             String name of the mutation
         """
         return "SQLRandomize"
-    
-    def __del__(self):
-        """Clean up resources."""
-        self.validator.close()

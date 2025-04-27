@@ -1,17 +1,10 @@
-#!/usr/bin/env python3
-"""
-Database Generator
-
-This module generates multiple SQLite databases with identical schema but varying data.
-"""
-
 import os
 import sqlite3
 import random
 import string
 from typing import List
 
-class DatabaseGenerator:
+class DBGenerator:
     """
     Class to generate multiple SQLite databases with standard schema.
     """

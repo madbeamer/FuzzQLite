@@ -1,17 +1,9 @@
-#!/usr/bin/env python3
-"""
-Base Mutation Class
-
-This module defines the abstract base class for all mutations in the system.
-"""
-
 import abc
-from typing import Any
 
 
-class Mutation(abc.ABC):
+class Mutator(abc.ABC):
     """
-    Abstract base class for mutations.
+    Abstract base class for mutators.
     
     This class defines the interface that all mutation implementations
     must follow.

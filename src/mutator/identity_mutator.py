@@ -1,13 +1,7 @@
-#!/usr/bin/env python3
-"""
-Identity Mutation
+from mutator import Mutator
 
-This module implements a simple identity mutation that returns the input unchanged.
-"""
 
-from mutations.base_mutation import Mutation
-
-class IdentityMutation(Mutation):
+class IdentityMutation(Mutator):
     """
     A simple mutation that returns the input unchanged.
     

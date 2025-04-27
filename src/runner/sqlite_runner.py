@@ -1,10 +1,3 @@
-#!/usr/bin/env python3
-"""
-SQLite Runner
-
-Utility class to run SQLite with fuzzed inputs and perform differential testing.
-"""
-
 import subprocess
 import tempfile
 import shutil
@@ -21,11 +14,12 @@ from rich.layout import Layout
 from rich.panel import Panel
 import rich.box
 
-from utils.runners.base_runner import Runner, Outcome, RunResult
-from utils.bug_tracker import BugTracker
+from .outcome import Outcome
+from .run_result import RunResult
+from utils import BugTracker
 
 
-class SQLiteRunner(Runner):
+class SQLiteRunner:
     """
     Runner for SQLite database inputs with differential testing capability.
     """
@@ -252,13 +246,12 @@ class SQLiteRunner(Runner):
             reference_result=reference_result,
         )
     
-    def start_fuzzing_session(self, total_trials: int, mode: str, version: str):
+    def start_fuzzing_session(self, total_trials: int, version: str):
         """
         Start a new fuzzing session.
         
         Args:
             total_trials: Total number of trials planned
-            mode: Fuzzing mode
             version: SQLite version being tested
         """
         self.start_time = time.time()
@@ -277,7 +270,6 @@ class SQLiteRunner(Runner):
         self.console.print(f"Target SQLite version: {version} ({self.target_sqlite_path})")
         self.console.print(f"Reference SQLite version: {self.reference_sqlite_path.split('-')[-1] if '-' in self.reference_sqlite_path else 'unknown'} ({self.reference_sqlite_path})")
         self.console.print(f"Number of trials: {total_trials}")
-        self.console.print(f"Fuzzing mode: {mode}")
         self.console.rule(style="bold")
         self.console.print()
         

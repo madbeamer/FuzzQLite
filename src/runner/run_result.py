@@ -1,23 +1,4 @@
-#!/usr/bin/env python3
-"""
-Base Runner Classes
-
-This module defines the abstract base classes for runners that execute
-fuzzed inputs and the outcome classification for execution results.
-"""
-
-import abc
-from typing import Any, Dict, Tuple, Union
-
-
-class Outcome:
-    """This class defines the possible outcomes of running a fuzzed input."""
-    PASS = "PASS"                        # Executed successfully with same result as reference
-    REFERENCE_ERROR = "REFERENCE_ERROR"  # Target executed successfully but reference SQLite crashed
-    CRASH = "CRASH"                      # Target SQLite crashed, reference didn't
-    LOGIC_BUG = "LOGIC_BUG"              # Different result between target and reference (both succeeded)
-    INVALID_QUERY = "INVALID_QUERY"      # Both target and reference SQLite crashed
-
+from typing import Dict, Any
 
 class RunResult:
     """Class to encapsulate the result of running a program with fuzzed input."""
@@ -52,24 +33,3 @@ class RunResult:
         self.target_result = target_result
         self.reference_sqlite_version = reference_sqlite_version
         self.reference_result = reference_result
-
-
-class Runner(abc.ABC):
-    """Base class to run external programs."""
-    
-    @abc.abstractmethod
-    def run(self, input_data: Union[str, Tuple[Any, ...]]) -> RunResult:
-        """
-        Run the program with the given input.
-        
-        Args:
-            input_data: Input to feed to the program (string or tuple)
-            
-        Returns:
-            A RunResult object containing process result and outcome
-        """
-        pass
-    
-    def cleanup(self):
-        """Clean up any resources. Default implementation does nothing."""
-        pass
