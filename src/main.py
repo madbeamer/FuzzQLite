@@ -5,9 +5,10 @@ from typing import List
 
 from fuzzer import MutationFuzzer
 from runner import SQLiteRunner
-from utils import QueryGenerator, DBGenerator, BugTracker
+from utils import BugTracker
+from utils.generator import QueryGenerator, DBGenerator, SeedGenerator
 # from mutator import IdentityMutation
-from mutator import SQLRandomizeMutation
+from mutator import SQLRandomizeMutator
 
 
 # Available SQLite versions for testing
@@ -39,7 +40,7 @@ def parse_args(args: List[str]) -> argparse.Namespace:
         help="SQLite version to test (default: 3.26.0)"
     )
     
-    parser.add_argument(
+    parser.add_argument( # FIXME: Add this logic later
         "--seed",
         type=int,
         default=None,
@@ -63,12 +64,6 @@ def parse_args(args: List[str]) -> argparse.Namespace:
         "--databases-dir",
         default="databases",
         help="Directory for generated databases (default: databases)"
-    )
-    
-    parser.add_argument(
-        "--regenerate-dbs",
-        action="store_true",
-        help="Regenerate the database files"
     )
     
     return parser.parse_args(args)
@@ -100,26 +95,21 @@ def main(args: List[str] = None) -> int:
         print(f"Error: Reference SQLite binary not found at {REFERENCE_SQLITE}")
         return 1
     
-    # Generate or regenerate databases
+    # Generate databases
     db_generator = DBGenerator(db_dir=parsed_args.databases_dir)
-    
-    # Check if databases need to be generated
-    db_files = []
-    if os.path.exists(parsed_args.databases_dir):
-        db_files = [f for f in os.listdir(parsed_args.databases_dir) if f.endswith('.db')]
-    
-    if parsed_args.regenerate_dbs or not db_files:
-        db_paths = db_generator.generate_databases()
-    else:
-        db_paths = [
-            os.path.join(parsed_args.databases_dir, db_file)
-            for db_file in db_files
-        ]
+    db_paths = db_generator.generate_databases()
 
-    # Generate seed corpus
+    # Generate queries
     query_generator = QueryGenerator()
-    seed_queries = query_generator.generate_seed_queries()
-    
+    seed_queries = query_generator.generate_queries()
+
+    # Generate seed pairs (SQL query, database path)
+    seed_generator = SeedGenerator()
+    seed = seed_generator.generate_seed(
+        sql_queries=seed_queries,
+        db_paths=db_paths
+    )
+
     # Create a runner with improved display
     runner = SQLiteRunner(
         target_sqlite_path=target_sqlite_path,
@@ -131,13 +121,11 @@ def main(args: List[str] = None) -> int:
     
     # Create the fuzzer
     fuzzer = MutationFuzzer(
-        seed=parsed_args.seed,
-        mutations=[SQLRandomizeMutation()], # IdentityMutation()
-        db_paths=db_paths
+        seed=seed,
+        mutators=[SQLRandomizeMutator()], # IdentityMutation()
+        min_mutations=1,
+        max_mutations=1 # FIXME: For now, only do one mutation
     )
-
-    # Load the corpus
-    fuzzer.load_corpus(seed_queries)
     
     try:
         # Start the fuzzing session with real-time display
@@ -149,10 +137,10 @@ def main(args: List[str] = None) -> int:
         # Run the fuzzer iteratively to update display in real-time
         for _ in range(parsed_args.trials):
             # Get the next input
-            input_data = fuzzer.fuzz()
+            inp = fuzzer.fuzz()
             
             # Run the input and get result
-            result = runner.run(input_data)
+            result = runner.run(inp)
             
             # Record the result with bug tracking
             runner.record_result(result, bug_tracker=bug_tracker)

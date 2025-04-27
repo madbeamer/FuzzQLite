@@ -1,4 +1,5 @@
 import abc
+from typing import Any
 
 
 class Mutator(abc.ABC):
@@ -10,29 +11,29 @@ class Mutator(abc.ABC):
     """
     
     def __init__(self):
-        """Initialize the mutation operator."""
+        """Initialize the mutator."""
         pass
     
     @abc.abstractmethod
-    def mutate(self, input_data: str) -> str:
+    def mutate(self, input_data: Any) -> Any:
         """
         Apply the mutation to the input data.
         
         Args:
-            input_data: The input string to mutate
+            input_data: The input to mutate
             
         Returns:
-            The mutated string
+            The mutated input
         """
         pass
     
     @property
     def name(self) -> str:
         """
-        Get the name of this mutation operator.
+        Get the name of this mutator.
         
         Returns:
-            String name of the mutation
+            String name of the mutator
         """
         return self.__class__.__name__
     

@@ -2,12 +2,12 @@ from typing import List
 
 class QueryGenerator:
     """
-    Class to generate seed corpus of SQL queries.
+    Class to generate SQL queries.
     """
     
-    def generate_seed_queries(self) -> List[str]:
+    def generate_queries(self) -> List[str]:
         """
-        Generate a comprehensive seed corpus covering all SQL features.
+        Generate SQL queries covering most SQL features.
         
         Returns:
             List of valid SQL queries

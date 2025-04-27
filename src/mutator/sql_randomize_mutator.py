@@ -1,14 +1,15 @@
 import random
 import re
+from typing import Tuple
 
 from mutator import Mutator
 
 
-class SQLRandomizeMutation(Mutator):
+class SQLRandomizeMutator(Mutator):
     """
-    A mutation that modifies parts of SQL queries to trigger bugs.
+    A mutator that modifies parts of SQL queries to trigger bugs.
     
-    This mutation applies various SQL-specific mutations such as:
+    This mutator applies various SQL-specific mutations such as:
     - Adding/removing quotes
     - Changing numeric values
     - Inserting/replacing SQL keywords
@@ -16,7 +17,7 @@ class SQLRandomizeMutation(Mutator):
     """
     
     def __init__(self):
-        """Initialize the SQL randomize mutation."""
+        """Initialize the SQL randomize mutator."""
         super().__init__()
         
         self.sql_keywords = [
@@ -39,16 +40,18 @@ class SQLRandomizeMutation(Mutator):
             "ROUND", "HEX", "TYPEOF"
         ]
     
-    def mutate(self, input_data: str) -> str:
+    def mutate(self, inp: Tuple[str, str]) -> Tuple[str, str]:
         """
         Apply SQL-specific mutation to the input.
         
         Args:
-            input_data: The input SQL to mutate
+            inp: (sql_query, db_path) tuple
             
         Returns:
-            The mutated SQL string
+            The mutated input data (sql_query, db_path)
         """
+        sql_query, db_path = inp
+
         # Choose a random mutation strategy
         strategies = [
             self._flip_quotes,
@@ -62,9 +65,9 @@ class SQLRandomizeMutation(Mutator):
         ]
 
         strategy = random.choice(strategies)
-        mutated_sql = strategy(input_data)
+        mutated_sql_query = strategy(sql_query)
         
-        return mutated_sql
+        return (mutated_sql_query, db_path)
     
     def _flip_quotes(self, input_data: str) -> str:
         """Change single quotes to double quotes or vice versa."""
@@ -206,13 +209,3 @@ class SQLRandomizeMutation(Mutator):
                     return input_data.replace(keyword.lower(), new_keyword.lower(), 1)
         
         return input_data
-    
-    @property
-    def name(self) -> str:
-        """
-        Get the name of this mutation operator.
-        
-        Returns:
-            String name of the mutation
-        """
-        return "SQLRandomize"

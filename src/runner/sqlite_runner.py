@@ -180,17 +180,17 @@ class SQLiteRunner:
         
         return '\n'.join(normalized_lines)
     
-    def run(self, input_data: Tuple[str, str]) -> RunResult:
+    def run(self, inp: Tuple[str, str]) -> RunResult:
         """
         Run SQLite with the given input and compare with reference version.
         
         Args:
-            input_data: Tuple of (db_path, sql_query)
+            inp: Tuple of (sql_query, db_path)
             
         Returns:
             A RunResult containing process result and outcome
         """
-        db_path, sql_query = input_data
+        sql_query, db_path = inp
 
         # Create a fresh copy of the database for reference testing
         reference_db_path = self._save_database_state(db_path, prefix="reference")
