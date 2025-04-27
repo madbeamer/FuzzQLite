@@ -95,9 +95,6 @@ class CorpusGenerator:
             
             # Self-joins
             "SELECT a.name as user1, b.name as user2 FROM users a, users b WHERE a.id < b.id AND a.age = b.age;",
-
-            # SQL version
-            "SELECT sqlite_version();",
         ]
         
         return corpus
