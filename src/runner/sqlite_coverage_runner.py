@@ -441,8 +441,8 @@ class SQLiteCoverageRunner:
         
         # Create the recent trials list (collapsible)
         if self.run_results:
-            # Get the last 50 results
-            recent_results = self.run_results[-50:]
+            # Get the last 20 results
+            recent_results = self.run_results[-20:]
             
             # Calculate available width for query display based on terminal size
             # Use the console's width or fallback to a reasonable default
