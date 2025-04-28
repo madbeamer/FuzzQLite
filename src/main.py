@@ -11,15 +11,23 @@ from utils.generator import QueryGenerator, DBGenerator, SeedGenerator
 from mutator import SQLRandomizeMutator
 
 
-# Available SQLite versions for testing
-SQLITE_VERSIONS = {
-    "3.26.0": "/usr/bin/sqlite3-3.26.0",
-    "3.39.4": "/usr/bin/sqlite3-3.39.4"
-}
+# SQLITE_VERSIONS = {
+#     "3.26.0": "/usr/bin/sqlite3-3.26.0",
+#     "3.39.4": "/usr/bin/sqlite3-3.39.4"
+# }
 
-# Reference SQLite version
-REFERENCE_SQLITE = "/usr/bin/sqlite3-3.49.1"
+TARGET_SQLITE_PATHS = [
+    "/usr/bin/sqlite3-3.26.0",
+    "/usr/bin/sqlite3-3.39.4"
+]
 
+REFERENCE_SQLITE_PATH = "/usr/bin/sqlite3-3.49.1"
+
+def positive_int(value):
+    ivalue = int(value)
+    if ivalue <= 0:
+        raise argparse.ArgumentTypeError(f"{value} is not a positive integer")
+    return ivalue
 
 def parse_args(args: List[str]) -> argparse.Namespace:
     """
@@ -33,12 +41,12 @@ def parse_args(args: List[str]) -> argparse.Namespace:
     """
     parser = argparse.ArgumentParser(description="FuzzQLite - SQLite Fuzzer")
     
-    parser.add_argument(
-        "--version",
-        choices=list(SQLITE_VERSIONS.keys()),
-        default="3.26.0",
-        help="SQLite version to test (default: 3.26.0)"
-    )
+    # parser.add_argument( # FIXME: Add this logic later
+    #     "--version",
+    #     choices=list(SQLITE_VERSIONS.keys()),
+    #     default="3.26.0",
+    #     help="SQLite version to test (default: 3.26.0)"
+    # )
     
     parser.add_argument( # FIXME: Add this logic later
         "--seed",
@@ -49,7 +57,7 @@ def parse_args(args: List[str]) -> argparse.Namespace:
     
     parser.add_argument(
         "--trials",
-        type=int,
+        type=positive_int,
         default=10,
         help="Number of fuzzing trials to run (default: 10)"
     )
@@ -83,16 +91,16 @@ def main(args: List[str] = None) -> int:
         args = sys.argv[1:]
     
     parsed_args = parse_args(args)
+
+    # Check if all target SQLite paths exist
+    for sqlite_path in TARGET_SQLITE_PATHS:
+        if not os.path.exists(sqlite_path):
+            print(f"Error: Target SQLite binary not found at {sqlite_path}")
+            return 1
     
-    # Check if the selected SQLite version exists
-    target_sqlite_path = SQLITE_VERSIONS[parsed_args.version]
-    if not os.path.exists(target_sqlite_path):
-        print(f"Error: SQLite binary not found at {target_sqlite_path}")
-        return 1
-        
-    # Check if the reference SQLite version exists
-    if not os.path.exists(REFERENCE_SQLITE):
-        print(f"Error: Reference SQLite binary not found at {REFERENCE_SQLITE}")
+    # Check if reference SQLite path exists
+    if not os.path.exists(REFERENCE_SQLITE_PATH):
+        print(f"Error: Reference SQLite binary not found at {REFERENCE_SQLITE_PATH}")
         return 1
     
     # Generate databases
@@ -110,10 +118,11 @@ def main(args: List[str] = None) -> int:
         db_paths=db_paths
     )
 
-    # Create a runner with improved display
+    # Create a runner for SQLite
     runner = SQLiteRunner(
-        target_sqlite_path=target_sqlite_path,
-        reference_sqlite_path=REFERENCE_SQLITE
+        target_sqlite_paths=TARGET_SQLITE_PATHS,
+        reference_sqlite_path=REFERENCE_SQLITE_PATH,
+        total_trials=parsed_args.trials,
     )
     
     # Create a bug tracker to save reproducers
@@ -129,21 +138,18 @@ def main(args: List[str] = None) -> int:
     
     try:
         # Start the fuzzing session with real-time display
-        runner.start_fuzzing_session(
-            total_trials=parsed_args.trials,
-            version=parsed_args.version
-        )
+        runner.start_fuzzing_session()
         
         # Run the fuzzer iteratively to update display in real-time
         for _ in range(parsed_args.trials):
             # Get the next input
             inp = fuzzer.fuzz()
             
-            # Run the input and get result
-            result = runner.run(inp)
+            # Run the input on all target SQLite binaries
+            run_results = runner.run(inp)
             
-            # Record the result with bug tracking
-            runner.record_result(result, bug_tracker=bug_tracker)
+            # Record the results with bug tracking
+            runner.record_results(run_results=run_results, bug_tracker=bug_tracker)
             
         # Finish the fuzzing session with final stats
         runner.finish_fuzzing_session(bug_tracker=bug_tracker)

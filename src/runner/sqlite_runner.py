@@ -4,7 +4,7 @@ import shutil
 import os
 import time
 import datetime
-from typing import Tuple, Dict, Any
+from typing import List, Tuple, Dict, Any
 
 from rich.console import Console
 from rich.table import Table
@@ -25,37 +25,41 @@ class SQLiteRunner:
     """
     
     def __init__(self, 
-                 target_sqlite_path: str,
+                 target_sqlite_paths: List[str],
                  reference_sqlite_path: str,
+                 total_trials: int,
                  timeout: int = 30):
         """
         Initialize the SQLite runner.
         
         Args:
-            target_sqlite_path: Path to the SQLite executable to test
+            target_sqlite_paths: Paths to the target SQLite executables
             reference_sqlite_path: Path to the reference SQLite executable
+            total_trials: Total number of trials to run
             timeout: Timeout in seconds for the SQLite process
         """
-        self.target_sqlite_path = target_sqlite_path
+        self.target_sqlite_paths = target_sqlite_paths
         self.reference_sqlite_path = reference_sqlite_path
         self.timeout = timeout
         self.temp_dir = tempfile.mkdtemp(prefix="fuzzqlite_")
         self.console = Console()
         
-        # Initialize stats with the allowed outcomes
-        self.stats = {
-            "PASS": 0,
-            "CRASH": 0,
-            "LOGIC_BUG": 0,
-            "REFERENCE_ERROR": 0,
-            "INVALID_QUERY": 0,
-        }
+        # Initialize stats for each target SQLite path
+        self.stats = {}
+        for path in self.target_sqlite_paths:
+            self.stats[path] = {
+                "PASS": 0,
+                "CRASH": 0,
+                "LOGIC_BUG": 0,
+                "REFERENCE_ERROR": 0,
+                "INVALID_QUERY": 0,
+            }
         
         # For progress tracking
         self.start_time = None
-        self.total_trials = 0
+        self.total_trials = total_trials
         self.current_trial = 0
-        self.results = []
+        self.run_results = []  # Will store the latest run results for display
         self.live_display = None
         
         # Define outcome styling
@@ -67,20 +71,25 @@ class SQLiteRunner:
             Outcome.INVALID_QUERY: "blue",
         }
     
-    def _save_database_state(self, db_path: str, prefix: str) -> str:
+    def _save_database_state(self, db_path: str) -> str:
         """
-        Save a copy of the database before executing the query.
+        Save a copy of the database before executing the query using a random name.
         
         Args:
             db_path: Path to the original database
-            prefix: Prefix for the saved database filename
         
         Returns:
             Path to the saved copy or None if database doesn't exist
         """
+        import uuid
+        
         if db_path and db_path != ":memory:" and os.path.exists(db_path):
-            # Create a copy of the database
-            saved_db_path = os.path.join(self.temp_dir, f"{prefix}_{os.path.basename(db_path)}")
+            # Generate a random unique identifier
+            random_id = uuid.uuid4().hex[:8]
+            
+            # Create a copy of the database with random name
+            base_name = os.path.basename(db_path)
+            saved_db_path = os.path.join(self.temp_dir, f"{random_id}_{base_name}")
             shutil.copy2(db_path, saved_db_path)
             return saved_db_path
         return None
@@ -180,7 +189,7 @@ class SQLiteRunner:
         
         return '\n'.join(normalized_lines)
     
-    def run(self, inp: Tuple[str, str]) -> RunResult:
+    def run(self, inp: Tuple[str, str]) -> Dict[str, RunResult]:
         """
         Run SQLite with the given input and compare with reference version.
         
@@ -188,91 +197,86 @@ class SQLiteRunner:
             inp: Tuple of (sql_query, db_path)
             
         Returns:
-            A RunResult containing process result and outcome
+            A dict with target SQLite paths as keys and RunResult as values
         """
         sql_query, db_path = inp
 
         # Create a fresh copy of the database for reference testing
-        reference_db_path = self._save_database_state(db_path, prefix="reference")
+        reference_db_path = self._save_database_state(db_path)
+
+        # Create a fresh copy of the database for target testing (one copy per target)
+        target_db_paths = {}
+        for target_sqlite_path in self.target_sqlite_paths:
+            target_db_paths[target_sqlite_path] = self._save_database_state(db_path)
         
         # Save the database state before running the query (for reproducibility)
-        saved_db_path = self._save_database_state(db_path, prefix="saved")
-        
-        # Run on target version
-        target_result = self._run_sqlite(self.target_sqlite_path, sql_query, db_path)
-        target_sqlite_version = self.target_sqlite_path.split('-')[-1] if '-' in self.target_sqlite_path else "unknown"
-        
+        saved_db_path = self._save_database_state(db_path)
+
         # Run on reference version
         reference_result = self._run_sqlite(self.reference_sqlite_path, sql_query, reference_db_path)
         reference_sqlite_version = self.reference_sqlite_path.split('-')[-1] if '-' in self.reference_sqlite_path else "unknown"
         
-        # Determine outcome based on:
-        # CRASH: target crashed (non-zero return code) AND reference did not crash (return code is 0)
-        # LOGIC_BUG: both target and reference did not crash (return code 0) AND results differ
-        # REFERENCE_ERROR: target did not crash (return code 0) AND reference crashed (non-zero return code)
-        # INVALID_QUERY: both target and reference crashed (non-zero return code)
-        # PASS: both target and reference did not crash (return code 0) AND results match
+        # Run on target versions
+        run_results = {}
+        for target_sqlite_path in self.target_sqlite_paths:
+            target_db_path = target_db_paths[target_sqlite_path]
+            target_result = self._run_sqlite(target_sqlite_path, sql_query, target_db_path)
+            target_sqlite_version = target_sqlite_path.split('-')[-1] if '-' in target_sqlite_path else "unknown"
         
-        target_crashed = target_result['returncode'] != 0
-        reference_crashed = reference_result['returncode'] != 0
-        
-        if target_crashed and not reference_crashed:
-            # Target crashed, reference succeeded
-            outcome = Outcome.CRASH
-        elif not target_crashed and reference_crashed:
-            # Target succeeded, reference crashed
-            outcome = Outcome.REFERENCE_ERROR
-        elif not target_crashed and not reference_crashed:
-            # Both succeeded, compare outputs
-            normalized_output_target = self._normalize_output(target_result['stdout'])
-            normalized_output_reference = self._normalize_output(reference_result['stdout'])
+            # Determine outcome based on:
+            # CRASH: target crashed (non-zero return code) AND reference did not crash (return code is 0)
+            # LOGIC_BUG: both target and reference did not crash (return code 0) AND results differ
+            # REFERENCE_ERROR: target did not crash (return code 0) AND reference crashed (non-zero return code)
+            # INVALID_QUERY: both target and reference crashed (non-zero return code)
+            # PASS: both target and reference did not crash (return code 0) AND results match
             
-            if normalized_output_target != normalized_output_reference:
-                outcome = Outcome.LOGIC_BUG
+            target_crashed = target_result['returncode'] != 0
+            reference_crashed = reference_result['returncode'] != 0
+            
+            if target_crashed and not reference_crashed:
+                # Target crashed, reference succeeded
+                outcome = Outcome.CRASH
+            elif not target_crashed and reference_crashed:
+                # Target succeeded, reference crashed
+                outcome = Outcome.REFERENCE_ERROR
+            elif not target_crashed and not reference_crashed:
+                # Both succeeded, compare outputs
+                normalized_output_target = self._normalize_output(target_result['stdout'])
+                normalized_output_reference = self._normalize_output(reference_result['stdout'])
+                
+                if normalized_output_target != normalized_output_reference:
+                    outcome = Outcome.LOGIC_BUG
+                else:
+                    outcome = Outcome.PASS
             else:
-                outcome = Outcome.PASS
-        else:
-            # Both crashed
-            outcome = Outcome.INVALID_QUERY
+                # Both crashed
+                outcome = Outcome.INVALID_QUERY
+
+            run_result = RunResult(
+                outcome=outcome,
+                sql_query=sql_query,
+                db_path=target_db_path,
+                saved_db_path=saved_db_path,
+                target_sqlite_version=target_sqlite_version,
+                target_result=target_result,
+                reference_sqlite_version=reference_sqlite_version,
+                reference_result=reference_result)
             
-        return RunResult(
-            outcome=outcome,
-            sql_query=sql_query,
-            db_path=db_path,
-            saved_db_path=saved_db_path,
-            target_sqlite_version=target_sqlite_version,
-            target_result=target_result,
-            reference_sqlite_version=reference_sqlite_version,
-            reference_result=reference_result,
-        )
+            run_results[target_sqlite_path] = run_result
+            
+        return run_results
     
-    def start_fuzzing_session(self, total_trials: int, version: str):
-        """
-        Start a new fuzzing session.
-        
-        Args:
-            total_trials: Total number of trials planned
-            version: SQLite version being tested
-        """
+    def start_fuzzing_session(self):
+        """Start a new fuzzing session."""
         self.start_time = time.time()
-        self.total_trials = total_trials
         self.current_trial = 0
-        self.results = []
+        self.run_results = []
         
-        # Reset stats
-        for outcome in self.stats:
-            self.stats[outcome] = 0
-        
-        # Print header
-        self.console.rule(style="bold")
-        self.console.print("FuzzQLite - SQLite Fuzzer", style="bold")
-        self.console.rule(style="bold")
-        self.console.print(f"Target SQLite version: {version} ({self.target_sqlite_path})")
-        self.console.print(f"Reference SQLite version: {self.reference_sqlite_path.split('-')[-1] if '-' in self.reference_sqlite_path else 'unknown'} ({self.reference_sqlite_path})")
-        self.console.print(f"Number of trials: {total_trials}")
-        self.console.rule(style="bold")
-        self.console.print()
-        
+        # Reset stats for each target
+        for path in self.target_sqlite_paths:
+            for outcome in self.stats[path]:
+                self.stats[path][outcome] = 0
+
         # Create the live display
         self.live_display = Live(self._generate_progress_display(), refresh_per_second=4)
         self.live_display.start()
@@ -304,140 +308,190 @@ class SQLiteRunner:
         return self._format_time(remaining_seconds)
     
     def _generate_progress_display(self) -> Layout:
-        """Generate the progress display layout."""
+        """Generate a progress display layout with fixed size stats/results and collapsible trials."""
+        # Create main layout
         layout = Layout()
+        
+        # Add padding at the top of the layout to prevent display cut-off when terminal shifts
         layout.split(
-            Layout(name="stats"),
-            Layout(name="trials"),
-            Layout(name="results"),
+            Layout(name="padding", size=1),  # Fixed size top padding (1 line to prevent cut-off when terminal shifts after completion)
+            Layout(name="content")  # Main content
         )
         
-        # Create the stats part
+        # Split the main content into two sections - top section with fixed sizing and bottom section that can collapse
+        layout["content"].split(
+            Layout(name="fixed_panels", ratio=1, minimum_size=11),  # Fixed minimum size for stats/results
+            Layout(name="trials", ratio=2, minimum_size=3)  # Collapsible section with minimum height
+        )
+        
+        # Split the fixed panels section into stats and results
+        layout["content"]["fixed_panels"].split_row(
+            Layout(name="stats", ratio=1, minimum_size=25),  # Fixed minimum width for stats
+            Layout(name="results", ratio=2, minimum_size=50)  # Fixed minimum width for results
+        )
+        
+        # Add whitespace padding at the top
+        layout["padding"].update("\n")
+        
+        # Create the stats part with fixed size, including target and reference information
         if self.start_time:
             elapsed = time.time() - self.start_time
             trials_per_sec = self._calculate_rate()
             
-            stats_panel = Panel(
-                f"[bold]Progress:[/] {self.current_trial}/{self.total_trials} trials ({self.current_trial/self.total_trials*100:.1f}%)\n"
-                f"[bold]Elapsed:[/] {self._format_time(elapsed)}\n"
-                f"[bold]Speed:[/] {trials_per_sec:.2f} trials/sec\n"
-                f"[bold]Est. Remaining:[/] {self._estimate_completion()}",
-                title="FuzzQLite Stats",
-                border_style="blue",
-                padding=(1, 2),
+            # Add target versions information
+            target_versions = []
+            for path in self.target_sqlite_paths:
+                version = path.split('-')[-1] if '-' in path and path.split('-')[-1] else 'unknown'
+                target_versions.append(f"{version}")
+            
+            # Add reference version information
+            ref_version = self.reference_sqlite_path.split('-')[-1] if '-' in self.reference_sqlite_path and self.reference_sqlite_path.split('-')[-1] else 'unknown'
+            
+            stats_text = (
+                f"[bold]FuzzQLite - SQLite Fuzzer[/]\n\n"
+                f"[bold]Target:[/] {', '.join(target_versions)}\n"
+                f"[bold]Reference:[/] {ref_version}\n\n"
+                f"[bold]Progress:[/] {self.current_trial}/{self.total_trials} ({self.current_trial/self.total_trials*100:.1f}%)\n"
+                f"[bold]Time:[/] {self._format_time(elapsed)}\n"
+                f"[bold]Speed:[/] {trials_per_sec:.2f}/s\n"
+                f"[bold]ETA:[/] {self._estimate_completion()}"
             )
-            layout["stats"].update(stats_panel)
+            stats_panel = Panel(
+                stats_text,
+                title="Stats",
+                border_style="blue",
+                padding=(0, 1),
+            )
+            layout["content"]["fixed_panels"]["stats"].update(stats_panel)
         else:
-            layout["stats"].update(Panel("Starting...", title="FuzzQLite"))
+            layout["content"]["fixed_panels"]["stats"].update(Panel("Starting...", title="FuzzQLite"))
         
-        # Create the recent trials list
-        if self.results:
-            # Get the last 12 results (or fewer if there are less)
-            recent_results = self.results[-12:]
+        # Create compact results display for all targets in one panel with fixed size
+        results_table = Table(box=rich.box.SIMPLE, padding=(0, 1), collapse_padding=True)
+        results_table.add_column("TARGET", style="bold")
+        
+        # Add outcome columns with full names
+        outcomes = ["PASS", "CRASH", "LOGIC_BUG", "REFERENCE_ERROR", "INVALID_QUERY"]
+        outcome_styles = {
+            "PASS": "green",
+            "CRASH": "red",
+            "LOGIC_BUG": "red",
+            "REFERENCE_ERROR": "yellow",
+            "INVALID_QUERY": "blue",
+        }
+        
+        for outcome in outcomes:
+            results_table.add_column(outcome, style=outcome_styles.get(outcome, "default"))
+        
+        # Add a row for each target
+        for target_path in self.target_sqlite_paths:
+            version = target_path.split('-')[-1] if '-' in target_path else "unknown"
+            version_stats = self.stats[target_path]
+            
+            row_data = [version]
+            total_version_trials = sum(version_stats.values())
+            
+            for outcome in outcomes:
+                count = version_stats.get(outcome, 0)
+                percentage = (count / total_version_trials) * 100 if total_version_trials > 0 else 0
+                row_data.append(f"{count} ({percentage:.1f}%)")
+            
+            results_table.add_row(*row_data)
+        
+        layout["content"]["fixed_panels"]["results"].update(Panel(results_table, title="Results", border_style="green", padding=(0, 1)))
+        
+        # Create the recent trials list (collapsible)
+        if self.run_results:
+            # Get the last 50 results
+            recent_results = self.run_results[-50:]
+            
+            # Calculate available width for query display based on terminal size
+            # Use the console's width or fallback to a reasonable default
+            console_width = self.console.width if hasattr(self.console, 'width') else 100
+            # Account for panel borders, padding, and prefix text (outcome and version info)
+            # Prefix is typically like "[red]✗ CRASH[/] (v1): " which is roughly 25 chars with styling
+            available_width = max(30, console_width - 30)  # Ensure at least 30 chars for the query
             
             result_lines = []
-            for i, result in enumerate(recent_results):
+            for result_entry in recent_results:
+                target_path, result = result_entry
+                version = target_path.split('-')[-1] if '-' in target_path else "unknown"
+                
                 outcome = result.outcome
                 sql_query = result.sql_query
                 
-                # Truncate long queries
+                # Truncate long queries based on available width
                 query = sql_query.strip()
-                if len(query) > 100:
-                    query = query[:97] + "..."
+                if len(query) > available_width:
+                    query = query[:available_width - 3] + "..."
                     
-                # Format the line with emoji based on outcome
+                # Format with emoji
                 emoji = "✓" if outcome == Outcome.PASS else "✗"
                 style = self.outcome_styles.get(outcome, "default")
                 
-                # Add the basic outcome line
-                result_line = f"[{style}]{emoji} {outcome}:[/] {query}"
+                result_line = f"[{style}]{emoji} {outcome[:5]}[/] ({version}): {query}"
                 result_lines.append(result_line)
                 
-                # Add error details based on outcome
+                # Only add error details for crashes
                 if outcome == Outcome.CRASH:
                     target_stderr = result.target_result.get('stderr', '')
                     if target_stderr:
-                        result_lines.append(f"  └─ {target_stderr.strip()}")
-                
-                elif outcome == Outcome.REFERENCE_ERROR:
-                    reference_stderr = result.reference_result.get('stderr', '')
-                    if reference_stderr:
-                        result_lines.append(f"  └─ Reference: {reference_stderr.strip()}")
+                        # Get just the first line of the error
+                        error_line = target_stderr.strip().split('\n')[0]
+                        if len(error_line) > available_width:
+                            error_line = error_line[:available_width - 3] + "..."
+                        result_lines.append(f"  └─ {error_line}")
             
             results_text = "\n".join(result_lines)
-            layout["trials"].update(Panel(results_text, title="Recent Trials", border_style="yellow"))
+            layout["content"]["trials"].update(Panel(results_text, title="Recent Trials", border_style="yellow", padding=(0, 1)))
         else:
-            layout["trials"].update(Panel("No results yet", title="Recent Trials"))
-
-        # Create the results table
-        results_table = Table(box=rich.box.SIMPLE_HEAVY, padding=(0, 3), collapse_padding=False)
-        results_table.add_column("OUTCOME", style="bold")
-        results_table.add_column("COUNT", justify="right", style="bold cyan")
-        results_table.add_column("PERCENT", justify="right", style="bold magenta")
-        
-        outcome_groups = [
-            ("green", [outcome for outcome in self.stats.keys() if outcome == Outcome.PASS]),
-            ("yellow", [outcome for outcome in self.stats.keys() if outcome == Outcome.REFERENCE_ERROR]),
-            ("red", [outcome for outcome in self.stats.keys() if outcome in (Outcome.CRASH, Outcome.LOGIC_BUG)]),
-            ("blue", [outcome for outcome in self.stats.keys() if outcome == Outcome.INVALID_QUERY]),
-        ]
-
-        # Add rows to the table by outcome groups
-        for i, (style, outcomes) in enumerate(outcome_groups):
-            if not outcomes:
-                continue
-                
-            for outcome in outcomes:
-                count = self.stats.get(outcome, 0)
-                percentage = (count / self.current_trial) * 100 if self.current_trial > 0 else 0
-                results_table.add_row(
-                    Text(outcome, style=style),
-                    str(count),
-                    f"{percentage:.2f}%"
-                )
-            
-            # Add a separator between groups if there are more groups to come
-            remaining_groups = [group for _, group in outcome_groups[i+1:] if group]
-            if remaining_groups:
-                table_has_next_group = any(len(group) > 0 for group in remaining_groups)
-                if table_has_next_group:
-                    results_table.add_section()
-        
-        layout["results"].update(Panel(results_table, title="Results Summary", border_style="green"))
+            layout["content"]["trials"].update(Panel("No results yet", title="Recent Trials"))
         
         return layout
     
-    def record_result(self, result: RunResult, bug_tracker: BugTracker) -> None:
+    def record_results(self, run_results: Dict[str, RunResult], bug_tracker: BugTracker) -> None:
         """
-        Record a result and update the display.
+        Record RunResults and update the display accordingly.
         
         Args:
-            result: The RunResult to record
+            run_results: Dictionary of RunResults keyed by target SQLite path
             bug_tracker: Bug tracker for saving reproducers
         """
         self.current_trial += 1
-        self.results.append(result)
-        outcome = result.outcome
-        self.stats[outcome] = self.stats.get(outcome, 0) + 1
         
+        # Process each target's result
+        for target_path, run_result in run_results.items():
+            # Update stats for this target
+            outcome = run_result.outcome
+            self.stats[target_path][outcome] = self.stats[target_path].get(outcome, 0) + 1
+            
+            # Store recent results for display
+            # We'll store tuples of (target_path, run_result) to track which target produced which result
+            self.run_results.append((target_path, run_result))
+            
+            # Handle bug saving for reproducibility
+            if outcome in (Outcome.CRASH, Outcome.LOGIC_BUG, Outcome.REFERENCE_ERROR):
+                bug_dir = bug_tracker.save_reproducer(
+                    bug_type=outcome,
+                    sql_query=run_result.sql_query,
+                    db_path=run_result.db_path,
+                    saved_db_path=run_result.saved_db_path,
+                    target_sqlite_version=run_result.target_sqlite_version,
+                    target_result=run_result.target_result,
+                    reference_sqlite_version=run_result.reference_sqlite_version,
+                    reference_result=run_result.reference_result
+                )
+                # Set bug_dir directly on the result
+                run_result.bug_dir = bug_dir
+        
+        # Keep only the most recent results for display (to avoid memory issues)
+        max_results_to_keep = 50  # Adjust as needed
+        if len(self.run_results) > max_results_to_keep:
+            self.run_results = self.run_results[-max_results_to_keep:]
+            
         # Update the display
         if self.live_display:
             self.live_display.update(self._generate_progress_display())
-        
-        # Handle bug saving for reproducability
-        if outcome in (Outcome.CRASH, Outcome.LOGIC_BUG, Outcome.REFERENCE_ERROR):
-            bug_dir = bug_tracker.save_reproducer(
-                bug_type=outcome,
-                sql_query=result.sql_query,
-                db_path=result.db_path,
-                saved_db_path=result.saved_db_path,
-                target_sqlite_version=result.target_sqlite_version,
-                target_result=result.target_result,
-                reference_sqlite_version=result.reference_sqlite_version,
-                reference_result=result.reference_result
-            )
-            # Set bug_dir directly on the result
-            result.bug_dir = bug_dir
     
     def finish_fuzzing_session(self, bug_tracker: BugTracker) -> None:
         """
@@ -449,24 +503,6 @@ class SQLiteRunner:
         # Stop the live display
         if self.live_display:
             self.live_display.stop()
-        
-        # Display bug summary if applicable
-        bug_count = self.stats.get(Outcome.CRASH, 0) + self.stats.get(Outcome.LOGIC_BUG, 0) + self.stats.get(Outcome.REFERENCE_ERROR, 0)
-        
-        if bug_count > 0:
-            self.console.print(f"[bold]Found {bug_count} bug{'s' if bug_count > 1 else ''}![/]")
-            if bug_tracker:
-                self.console.print(f"Bug reproducers saved to: {bug_tracker.output_dir}")
-        else:
-            self.console.print("[bold]No bugs found![/]")
-        
-        # Print elapsed time
-        if self.start_time:
-            elapsed = time.time() - self.start_time
-            self.console.print(f"Total time: {self._format_time(elapsed)}")
-            self.console.print(f"Average speed: {self.total_trials / elapsed:.2f} trials/sec")
-        
-        self.console.print()
     
     def cleanup(self):
         """Clean up temporary directories."""
