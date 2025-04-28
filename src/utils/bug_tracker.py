@@ -138,6 +138,10 @@ class BugTracker:
             if bug_type == Outcome.CRASH:
                 f.write("### Expected Behavior\n\n")
                 f.write("The query should execute without crashing the SQLite process.\n\n")
+                f.write(f"Reference SQLite Behavior (reference version: {reference_sqlite_version}):\n\n")
+                f.write("```\n")
+                f.write(reference_stdout)
+                f.write("\n```\n\n")
                 
                 f.write("### Actual Behavior\n\n")
                 f.write("The query causes SQLite to crash with the following error:\n\n")
