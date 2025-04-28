@@ -63,7 +63,7 @@ def parse_args(args: List[str]) -> argparse.Namespace:
     )
     
     parser.add_argument(
-        "--bugs-dir",
+        "--output-dir",
         default="bug_reproducers",
         help="Directory to save bug reproducers (default: bug_reproducers)"
     )
@@ -125,43 +125,18 @@ def main(args: List[str] = None) -> int:
         total_trials=parsed_args.trials,
     )
     
-    # Create a bug tracker to save reproducers
-    bug_tracker = BugTracker(output_dir=parsed_args.bugs_dir)
-    
     # Create the fuzzer
     fuzzer = MutationFuzzer(
         seed=seed,
+        output_dir=parsed_args.output_dir,
         mutators=[SQLRandomizeMutator()], # IdentityMutation()
         min_mutations=1,
         max_mutations=1 # FIXME: For now, only do one mutation
     )
     
-    try:
-        # Start the fuzzing session with real-time display
-        runner.start_fuzzing_session()
+    # Run the fuzzer
+    fuzzer.runs(runner=runner, trials=parsed_args.trials)
         
-        # Run the fuzzer iteratively to update display in real-time
-        for _ in range(parsed_args.trials):
-            # Get the next input
-            inp = fuzzer.fuzz()
-            
-            # Run the input on all target SQLite binaries
-            run_results = runner.run(inp)
-            
-            # Record the results with bug tracking
-            runner.record_results(run_results=run_results, bug_tracker=bug_tracker)
-            
-        # Finish the fuzzing session with final stats
-        runner.finish_fuzzing_session(bug_tracker=bug_tracker)
-        
-    except KeyboardInterrupt:
-        print("\nFuzzing interrupted by user.")
-        # Still show summary of findings so far
-        runner.finish_fuzzing_session(bug_tracker=bug_tracker)
-    finally:
-        # Cleanup resources
-        runner.cleanup()
-    
     return 0
 
 

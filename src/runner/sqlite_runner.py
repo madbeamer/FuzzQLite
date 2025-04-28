@@ -493,13 +493,8 @@ class SQLiteRunner:
         if self.live_display:
             self.live_display.update(self._generate_progress_display())
     
-    def finish_fuzzing_session(self, bug_tracker: BugTracker) -> None:
-        """
-        Finish the fuzzing session and display final stats.
-        
-        Args:
-            bug_tracker: BugTracker for bug summary
-        """
+    def finish_fuzzing_session(self) -> None:
+        """Finish the fuzzing session and display final stats."""
         # Stop the live display
         if self.live_display:
             self.live_display.stop()
