@@ -2,7 +2,7 @@ import random
 import re
 from typing import Tuple
 
-from mutator import Mutator
+from mutator.mutator import Mutator
 
 
 class SQLRandomizeMutator(Mutator):

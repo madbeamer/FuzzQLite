@@ -1,9 +1,13 @@
 import random
 from typing import List, Optional, Tuple, Dict
 
-from mutator import Mutator, IdentitiyMutator
-from runner import SQLiteRunner, RunResult
-from utils import BugTracker
+from runner.sqlite_runner import SQLiteRunner
+from runner.run_result import RunResult
+
+from mutator.mutator import Mutator
+from mutator.identity_mutator import IdentitiyMutator
+
+from utils.bug_tracker import BugTracker
 
 class MutationFuzzer:
     """

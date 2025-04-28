@@ -3,12 +3,18 @@ import sys
 import os
 from typing import List
 
-from fuzzer import MutationFuzzer
-from runner import SQLiteRunner
-from utils import BugTracker
-from utils.generator import QueryGenerator, DBGenerator, SeedGenerator
-# from mutator import IdentityMutation
-from mutator import SQLRandomizeMutator
+# from fuzzer.mutation_fuzzer import MutationFuzzer
+from fuzzer.mutation_coverage_fuzzer import MutationCoverageFuzzer
+
+# from runner.sqlite_runner import SQLiteRunner
+from runner.sqlite_coverage_runner import SQLiteCoverageRunner
+
+# from mutator.identity_mutator import IdentitiyMutator
+from mutator.sql_randomize_mutator import SQLRandomizeMutator
+
+from utils.generator.query_generator import QueryGenerator
+from utils.generator.db_generator import DBGenerator
+from utils.generator.seed_generator import SeedGenerator
 
 
 # SQLITE_VERSIONS = {
@@ -119,14 +125,14 @@ def main(args: List[str] = None) -> int:
     )
 
     # Create a runner for SQLite
-    runner = SQLiteRunner(
+    runner = SQLiteCoverageRunner(
         target_sqlite_paths=TARGET_SQLITE_PATHS,
         reference_sqlite_path=REFERENCE_SQLITE_PATH,
         total_trials=parsed_args.trials,
     )
     
     # Create the fuzzer
-    fuzzer = MutationFuzzer(
+    fuzzer = MutationCoverageFuzzer(
         seed=seed,
         output_dir=parsed_args.output_dir,
         mutators=[SQLRandomizeMutator()], # IdentityMutation()

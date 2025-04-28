@@ -8,15 +8,15 @@ from typing import List, Tuple, Dict, Any
 
 from rich.console import Console
 from rich.table import Table
-from rich.text import Text
 from rich.live import Live
 from rich.layout import Layout
 from rich.panel import Panel
 import rich.box
 
-from .outcome import Outcome
-from .run_result import RunResult
-from utils import BugTracker
+from runner.outcome import Outcome
+from runner.run_result import RunResult
+
+from utils.bug_tracker import BugTracker
 
 
 class SQLiteRunner:
@@ -59,7 +59,7 @@ class SQLiteRunner:
         self.start_time = None
         self.total_trials = total_trials
         self.current_trial = 0
-        self.run_results = []  # Will store the latest run results for display
+        self.run_results = [] # Store the latest run results for display
         self.live_display = None
         
         # Define outcome styling
@@ -485,7 +485,7 @@ class SQLiteRunner:
                 run_result.bug_dir = bug_dir
         
         # Keep only the most recent results for display (to avoid memory issues)
-        max_results_to_keep = 50  # Adjust as needed
+        max_results_to_keep = 50
         if len(self.run_results) > max_results_to_keep:
             self.run_results = self.run_results[-max_results_to_keep:]
             

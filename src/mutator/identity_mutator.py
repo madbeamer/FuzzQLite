@@ -1,6 +1,6 @@
 from typing import Tuple
 
-from mutator import Mutator
+from mutator.mutator import Mutator
 
 
 class IdentitiyMutator(Mutator):

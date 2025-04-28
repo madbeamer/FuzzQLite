@@ -1,10 +1,3 @@
-#!/usr/bin/env python3
-"""
-SQLite Validator
-
-This module provides functionality to validate SQLite queries for syntax correctness.
-"""
-
 import sqlite3
 from typing import Optional, Tuple
 
