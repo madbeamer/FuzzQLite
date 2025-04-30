@@ -135,9 +135,9 @@ def main(args: List[str] = None) -> int:
     fuzzer = MutationCoverageFuzzer(
         seed=seed,
         output_dir=parsed_args.output_dir,
-        mutators=[SQLRandomizeMutator()], # IdentityMutation()
+        mutators=[SQLRandomizeMutator()], # IdentityMutator()
         min_mutations=1,
-        max_mutations=1 # FIXME: For now, only do one mutation
+        max_mutations=3 # FIXME: For now, only do one mutation
     )
     
     # Run the fuzzer
