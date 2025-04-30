@@ -176,3 +176,4 @@ cython_debug/
 # Generated output directories
 bug_reproducers/
 databases/
+potential_bugs/
