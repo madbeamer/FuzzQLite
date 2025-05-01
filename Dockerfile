@@ -26,6 +26,8 @@ RUN wget https://www.sqlite.org/2025/sqlite-autoconf-3490100.tar.gz && \
     ./configure && make && make install && \
     cp /usr/local/bin/sqlite3 /usr/bin/sqlite3-3.49.1
 
+# Create the symbolic link as requested
+RUN ln -sf /home/test/sqlite/sqlite3 /home/test/sqlite/sqlite3-3.26.0
 
 # Create app directory
 WORKDIR /app

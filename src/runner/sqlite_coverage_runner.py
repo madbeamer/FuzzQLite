@@ -20,8 +20,6 @@ from runner.run_result import RunResult
 from utils.bug_tracker import BugTracker
 
 
-GCOV_SQLITE_PATH = "/home/test/sqlite/sqlite3"
-
 class SQLiteCoverageRunner:
     """
     Runner for SQLite coverage testing.
@@ -75,29 +73,6 @@ class SQLiteCoverageRunner:
             Outcome.INVALID_QUERY: "blue",
         }
     
-    def _save_database_state(self, db_path: str) -> str:
-        """
-        Save a copy of the database before executing the query using a random name.
-        
-        Args:
-            db_path: Path to the original database
-        
-        Returns:
-            Path to the saved copy or None if database doesn't exist
-        """
-        import uuid
-        
-        if db_path and db_path != ":memory:" and os.path.exists(db_path):
-            # Generate a random unique identifier
-            random_id = uuid.uuid4().hex[:8]
-            
-            # Create a copy of the database with random name
-            base_name = os.path.basename(db_path)
-            saved_db_path = os.path.join(self.temp_dir, f"{random_id}_{base_name}")
-            shutil.copy2(db_path, saved_db_path)
-            return saved_db_path
-        return None
-    
     def _read_coverage(self) -> float:
         """
         Read the coverage data from a file.
@@ -118,7 +93,32 @@ class SQLiteCoverageRunner:
             return coverage_percentage
         else:
             return -1
-    
+        
+    def _restore_database(self, db_path: str) -> bool:
+        """
+        Restore a database from its backup copy.
+        
+        Args:
+            db_path: Path to the database to restore
+            
+        Returns:
+            True if restoration was successful, False otherwise
+        """
+        base_name = os.path.basename(db_path)
+        name_without_ext = os.path.splitext(base_name)[0]
+        db_dir = os.path.dirname(db_path)
+        backup_path = os.path.join(db_dir, f"{name_without_ext}_copy.db")
+        
+        if not os.path.exists(backup_path):
+            return False
+            
+        try:
+            # Replace the possibly corrupted database with its backup
+            shutil.copy2(backup_path, db_path)
+            return True
+        except Exception:
+            return False
+
     def _run_sqlite(self, sqlite_path: str, sql_query: str, db_path: str) -> Dict[str, Any]:
         """
         Run a specific SQLite version with the given input.
@@ -133,7 +133,8 @@ class SQLiteCoverageRunner:
         """
         # Create a temporary file for the SQL input
         with tempfile.NamedTemporaryFile(mode='w+', suffix='.sql', delete=False) as temp_file:
-            temp_file.write(sql_query)
+            modified_query = "BEGIN TRANSACTION;\n" + sql_query + "\n;\nROLLBACK;"
+            temp_file.write(modified_query)
             temp_file.flush()
             
             result = {
@@ -209,9 +210,9 @@ class SQLiteCoverageRunner:
                 # Try to handle floating point numbers
                 try:
                     float_val = float(part)
-                    # Round to a reasonable precision (e.g., 10 decimal places)
+                    # Round to a reasonable precision (e.g., 8 decimal places)
                     if '.' in part:
-                        normalized_parts.append(f"{float_val:.10f}")
+                        normalized_parts.append(f"{float_val:.8f}")
                     else:
                         normalized_parts.append(part)
                 except ValueError:
@@ -224,6 +225,7 @@ class SQLiteCoverageRunner:
     def run(self, inp: Tuple[str, str]) -> Dict[str, RunResult]:
         """
         Run SQLite with the given input and compare with reference version.
+        Restore database only if a true crash is detected (not for invalid queries).
         
         Args:
             inp: Tuple of (sql_query, db_path)
@@ -233,32 +235,14 @@ class SQLiteCoverageRunner:
         """
         sql_query, db_path = inp
 
-        # Save the database state before running the query (for reproducibility)
-        saved_db_path = self._save_database_state(db_path)
-
-        # Create a fresh copy of the database for reference testing
-        reference_db_path = self._save_database_state(db_path)
-
-        # Create a fresh copy of the database for target testing (one copy per target)
-        target_db_paths = {}
-        for target_sqlite_path in self.target_sqlite_paths:
-            target_db_paths[target_sqlite_path] = self._save_database_state(db_path)
-
-        # Create a fresh copy of the database for cgov testing
-        cgov_db_path = self._save_database_state(db_path)
-    
-        # Run on cgov sqlite version to update the sqlite3.c.gcov file
-        self._run_sqlite(GCOV_SQLITE_PATH, sql_query, cgov_db_path)
-
         # Run on reference version
-        reference_result = self._run_sqlite(self.reference_sqlite_path, sql_query, reference_db_path)
+        reference_result = self._run_sqlite(self.reference_sqlite_path, sql_query, db_path)
         reference_sqlite_version = self.reference_sqlite_path.split('-')[-1] if '-' in self.reference_sqlite_path else "unknown"
         
         # Run on target versions
         run_results = {}
         for target_sqlite_path in self.target_sqlite_paths:
-            target_db_path = target_db_paths[target_sqlite_path]
-            target_result = self._run_sqlite(target_sqlite_path, sql_query, target_db_path)
+            target_result = self._run_sqlite(target_sqlite_path, sql_query, db_path)
             target_sqlite_version = target_sqlite_path.split('-')[-1] if '-' in target_sqlite_path else "unknown"
         
             # Determine outcome based on:
@@ -272,11 +256,13 @@ class SQLiteCoverageRunner:
             reference_crashed = reference_result['returncode'] != 0
             
             if target_crashed and not reference_crashed:
-                # Target crashed, reference succeeded
+                # Target crashed, reference succeeded - this is a true crash, restore the database
                 outcome = Outcome.CRASH
+                self._restore_database(db_path)
             elif not target_crashed and reference_crashed:
                 # Target succeeded, reference crashed
                 outcome = Outcome.REFERENCE_ERROR
+                self._restore_database(db_path)
             elif not target_crashed and not reference_crashed:
                 # Both succeeded, compare outputs
                 normalized_output_target = self._normalize_output(target_result['stdout'])
@@ -287,14 +273,13 @@ class SQLiteCoverageRunner:
                 else:
                     outcome = Outcome.PASS
             else:
-                # Both crashed
+                # Both crashed - this is an invalid query, not a true crash, do not restore
                 outcome = Outcome.INVALID_QUERY
 
             run_result = RunResult(
                 outcome=outcome,
                 sql_query=sql_query,
-                db_path=target_db_path,
-                saved_db_path=saved_db_path,
+                db_path=db_path,
                 target_sqlite_version=target_sqlite_version,
                 target_result=target_result,
                 reference_sqlite_version=reference_sqlite_version,
@@ -518,7 +503,6 @@ class SQLiteCoverageRunner:
                     bug_type=outcome,
                     sql_query=run_result.sql_query,
                     db_path=run_result.db_path,
-                    saved_db_path=run_result.saved_db_path,
                     target_sqlite_version=run_result.target_sqlite_version,
                     target_result=run_result.target_result,
                     reference_sqlite_version=run_result.reference_sqlite_version,

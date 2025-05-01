@@ -7,7 +7,6 @@ class RunResult:
                  outcome: str,
                  sql_query: str,
                  db_path: str,
-                 saved_db_path: str,
                  target_sqlite_version: str,
                  target_result: Dict[str, Any],
                  reference_sqlite_version: str,
@@ -19,7 +18,6 @@ class RunResult:
             outcome: The outcome classification of the run
             sql_query: The SQL query that was executed
             db_path: Path to the database file
-            saved_db_path: Path to the saved database copy
             target_sqlite_version: Version of the target SQLite
             target_result: Result from target SQLite
             reference_sqlite_version: Version of the reference SQLite
@@ -28,7 +26,6 @@ class RunResult:
         self.outcome = outcome
         self.sql_query = sql_query
         self.db_path = db_path
-        self.saved_db_path = saved_db_path
         self.target_sqlite_version = target_sqlite_version
         self.target_result = target_result
         self.reference_sqlite_version = reference_sqlite_version

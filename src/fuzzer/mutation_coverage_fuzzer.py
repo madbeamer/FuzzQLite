@@ -17,7 +17,7 @@ class MutationCoverageFuzzer:
     
     def __init__(self, seed: List[Tuple[str, str]],
                  output_dir: str,
-                 mutators: Optional[List[Mutator]] = None,
+                 mutators: Optional[List[Mutator]] = [IdentitiyMutator()],
                  min_mutations: int = 1,
                  max_mutations: int = 10) -> None:
         """
@@ -32,10 +32,7 @@ class MutationCoverageFuzzer:
         """
         self.seed = seed
         self.bug_tracker = BugTracker(output_dir=output_dir) # Create a bug tracker to save reproducers
-        if mutators is None:
-            self.mutators = [IdentitiyMutator()]
-        else:
-            self.mutators = mutators
+        self.mutators = mutators
         self.min_mutations = min_mutations
         self.max_mutations = max_mutations
 

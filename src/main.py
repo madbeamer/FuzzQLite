@@ -17,13 +17,8 @@ from utils.generator.db_generator import DBGenerator
 from utils.generator.seed_generator import SeedGenerator
 
 
-# SQLITE_VERSIONS = {
-#     "3.26.0": "/usr/bin/sqlite3-3.26.0",
-#     "3.39.4": "/usr/bin/sqlite3-3.39.4"
-# }
-
 TARGET_SQLITE_PATHS = [
-    "/usr/bin/sqlite3-3.26.0",
+    "/home/test/sqlite/sqlite3-3.26.0",
     "/usr/bin/sqlite3-3.39.4"
 ]
 
@@ -46,13 +41,6 @@ def parse_args(args: List[str]) -> argparse.Namespace:
         Parsed arguments
     """
     parser = argparse.ArgumentParser(description="FuzzQLite - SQLite Fuzzer")
-    
-    # parser.add_argument( # FIXME: Add this logic later
-    #     "--version",
-    #     choices=list(SQLITE_VERSIONS.keys()),
-    #     default="3.26.0",
-    #     help="SQLite version to test (default: 3.26.0)"
-    # )
     
     parser.add_argument( # FIXME: Add this logic later
         "--seed",

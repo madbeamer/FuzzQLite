@@ -30,7 +30,6 @@ class BugTracker:
                         bug_type: str, 
                         sql_query: str, 
                         db_path: str,
-                        saved_db_path: str,
                         target_sqlite_version: str,
                         target_result: Dict[str, Any],
                         reference_sqlite_version: str,
@@ -42,7 +41,6 @@ class BugTracker:
             bug_type: Type of bug (CRASH, LOGIC_BUG, or REFERENCE_ERROR)
             sql_query: The SQL query that triggered the bug
             db_path: Path to the original database file
-            saved_db_path: Path to the saved database state before query execution
             target_sqlite_version: SQLite version where the bug was found
             target_result: Result from the target SQLite
             reference_sqlite_version: SQLite version of the reference (for logic bugs or reference errors)
@@ -74,9 +72,9 @@ class BugTracker:
             # FIXME: Write a query reducer
         
         # 3. Copy the saved database state
-        if saved_db_path and os.path.exists(saved_db_path):
+        if db_path and os.path.exists(db_path):
             # Copy the pre-execution database state
-            shutil.copy2(saved_db_path, os.path.join(bug_dir, "test.db"))
+            shutil.copy2(db_path, os.path.join(bug_dir, "test.db"))
         elif db_path and db_path != ":memory:" and os.path.exists(db_path):
             # Fallback to current database state if saved state not available
             shutil.copy2(db_path, os.path.join(bug_dir, "test.db"))
