@@ -2,7 +2,8 @@ import os
 import sqlite3
 import random
 import string
-from typing import List
+import shutil
+from typing import List, Dict, Any
 
 class DBGenerator:
     """
@@ -166,10 +167,10 @@ class DBGenerator:
     
     def generate_databases(self) -> List[str]:
         """
-        Generate all database variants.
+        Generate all database variants and their backups.
         
         Returns:
-            List of paths to generated databases
+            List of paths to generated databases (excluding backup copies)
         """
         db_configs = [
             ("empty.db", "empty"),
@@ -193,6 +194,10 @@ class DBGenerator:
                 self.create_schema(conn)
                 self.generate_random_data(conn, size)
                 db_paths.append(db_path)
+                
+                # Create a backup copy
+                backup_path = os.path.join(self.db_dir, f"{os.path.splitext(db_name)[0]}_copy.db")
+                shutil.copy2(db_path, backup_path)
             finally:
                 conn.close()
         
