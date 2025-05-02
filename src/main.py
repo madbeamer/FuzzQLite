@@ -5,6 +5,8 @@ from typing import List
 
 # from fuzzer.mutation_fuzzer import MutationFuzzer
 from fuzzer.mutation_coverage_fuzzer import MutationCoverageFuzzer
+from fuzzer.greybox_fuzzer import GreyboxFuzzer
+from fuzzer.counting_greybox_fuzzer import CountingGreyboxFuzzer
 
 # from runner.sqlite_runner import SQLiteRunner
 from runner.sqlite_coverage_runner import SQLiteCoverageRunner
@@ -16,9 +18,12 @@ from utils.generator.query_generator import QueryGenerator
 from utils.generator.db_generator import DBGenerator
 from utils.generator.seed_generator import SeedGenerator
 
+from utils.power_schedule import PowerSchedule
+from utils.afl_fast_schedule import AFLFastSchedule
+
 
 TARGET_SQLITE_PATHS = [
-    "/home/test/sqlite/sqlite3-3.26.0",
+    "/home/test/sqlite/sqlite3-3.26.0", # Keep this first so it will be used first. This ensures that the gcov coverage is updated.
     "/usr/bin/sqlite3-3.39.4"
 ]
 
@@ -107,7 +112,7 @@ def main(args: List[str] = None) -> int:
 
     # Generate seed pairs (SQL query, database path)
     seed_generator = SeedGenerator()
-    seed = seed_generator.generate_seed(
+    seeds = seed_generator.generate_seed(
         sql_queries=seed_queries,
         db_paths=db_paths
     )
@@ -117,15 +122,34 @@ def main(args: List[str] = None) -> int:
         target_sqlite_paths=TARGET_SQLITE_PATHS,
         reference_sqlite_path=REFERENCE_SQLITE_PATH,
         total_trials=parsed_args.trials,
+        timeout=3
     )
     
     # Create the fuzzer
-    fuzzer = MutationCoverageFuzzer(
-        seed=seed,
+    # fuzzer = MutationCoverageFuzzer(
+    #     seed=seeds,
+    #     output_dir=parsed_args.output_dir,
+    #     mutators=[SQLRandomizeMutator()], # IdentityMutator()
+    #     min_mutations=1,
+    #     max_mutations=3  
+    # )
+
+    # fuzzer = GreyboxFuzzer(
+    #     seeds=seeds,
+    #     output_dir=parsed_args.output_dir,
+    #     schedule=PowerSchedule(),
+    #     mutators=[SQLRandomizeMutator()],
+    #     min_mutations=1,
+    #     max_mutations=3
+    # )
+
+    fuzzer = CountingGreyboxFuzzer(
+        seeds=seeds,
         output_dir=parsed_args.output_dir,
-        mutators=[SQLRandomizeMutator()], # IdentityMutator()
+        schedule=AFLFastSchedule(exponent=5),
+        mutators=[SQLRandomizeMutator()],
         min_mutations=1,
-        max_mutations=3 # FIXME: For now, only do one mutation
+        max_mutations=3
     )
     
     # Run the fuzzer
