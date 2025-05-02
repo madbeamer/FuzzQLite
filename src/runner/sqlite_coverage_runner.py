@@ -5,7 +5,7 @@ import os
 import time
 import datetime
 import re
-from typing import List, Tuple, Dict, Any
+from typing import List, Tuple, Dict, Any, Set
 
 from rich.console import Console
 from rich.table import Table
@@ -18,6 +18,7 @@ from runner.outcome import Outcome
 from runner.run_result import RunResult
 
 from utils.bug_tracker import BugTracker
+from utils.coverage import Location, read_gcov_coverage
 
 
 class SQLiteCoverageRunner:
@@ -73,16 +74,16 @@ class SQLiteCoverageRunner:
             Outcome.INVALID_QUERY: "blue",
         }
     
-    def _read_coverage(self) -> float:
+    def _read_coverage_percentage(self) -> float:
         """
-        Read the coverage data from a file.
+        Read the coverage percentage from a file.
             
         Returns:
             Coverage percentage
         """
-        # Run gcov command on the file
-        cmd = ["gcov", "-o", "/home/test/sqlite/sqlite3-sqlite3", "/home/test/sqlite/sqlite3.c"]
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        # Run gcov command on the file at cwd=/home/test/sqlite
+        cmd = ["gcov", "-o", "sqlite3-sqlite3", "sqlite3.c"]
+        result = subprocess.run(cmd, stdout=subprocess.PIPE, text=True, cwd="/home/test/sqlite")
         
         # Extract the coverage percentage from the output
         output = result.stdout
@@ -174,7 +175,7 @@ class SQLiteCoverageRunner:
                 except:
                     pass  # Ignore cleanup errors
 
-            coverage = self._read_coverage()
+            coverage = self._read_coverage_percentage()
             if coverage != -1:
                 result['coverage'] = coverage
             else:
@@ -222,7 +223,7 @@ class SQLiteCoverageRunner:
         
         return '\n'.join(normalized_lines)
     
-    def run(self, inp: Tuple[str, str]) -> Dict[str, RunResult]:
+    def run(self, inp: Tuple[str, str]) -> Tuple[Dict[str, RunResult], Set[Location]]:
         """
         Run SQLite with the given input and compare with reference version.
         Restore database only if a true crash is detected (not for invalid queries).
@@ -286,8 +287,10 @@ class SQLiteCoverageRunner:
                 reference_result=reference_result)
             
             run_results[target_sqlite_path] = run_result
+        
+        coverage = read_gcov_coverage("/home/test/sqlite/sqlite3.c")
             
-        return run_results
+        return run_results, coverage
     
     def start_fuzzing_session(self):
         """Start a new fuzzing session."""
