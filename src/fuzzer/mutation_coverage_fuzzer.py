@@ -1,5 +1,5 @@
 import random
-from typing import List, Optional, Tuple, Dict
+from typing import List, Optional, Tuple, Dict, Set
 
 from runner.sqlite_coverage_runner import SQLiteCoverageRunner
 from runner.outcome import Outcome
@@ -9,6 +9,7 @@ from mutator.mutator import Mutator
 from mutator.identity_mutator import IdentitiyMutator
 
 from utils.bug_tracker import BugTracker
+from utils.coverage import Location
 
 class MutationCoverageFuzzer:
     """
@@ -47,21 +48,25 @@ class MutationCoverageFuzzer:
             candidate = mutator.mutate(candidate)
         return candidate
     
-    def update_population(self, run_results: Dict[str, RunResult]) -> None:
+    def update_population(self, run_results: Dict[str, RunResult], new_coverage: Set[Location]) -> None:
         """
         Update the population with new inputs if:
         1. The outcome is PASS and
         2. The coverage is increased
         """
+        new_coverage = frozenset(new_coverage)
+
+        addToPopulation = False
         for run_result in run_results.values():
             # FIXME: Currently it is added if it is a PASS for at least one target.
             # Might change this such that it is added iff it is a PASS for all targets
-            new_coverage = run_result.target_result['coverage']
-            if new_coverage is None:
-                continue
-            if run_result.outcome == Outcome.PASS and new_coverage > self.coverage:
-                self.coverage = new_coverage
-                self.population.append(self.inp)
+            if run_result.outcome == Outcome.PASS and new_coverage not in self.coverages_seen:
+                addToPopulation = True
+                break
+        
+        if addToPopulation:
+            self.population.append(self.inp)
+            self.coverages_seen.add(new_coverage)
     
     def fuzz(self) -> Tuple[str, str]:
         """
@@ -80,7 +85,7 @@ class MutationCoverageFuzzer:
         
         return self.inp
     
-    def run(self, runner: SQLiteCoverageRunner) -> Dict[str, RunResult]:
+    def run(self, runner: SQLiteCoverageRunner) -> Tuple[Dict[str, RunResult], Set[Location]]:
         """Run `runner` with fuzz input"""
         return runner.run(self.fuzz())
 
@@ -92,10 +97,10 @@ class MutationCoverageFuzzer:
             # Run the fuzzer iteratively to update display in real-time
             for _ in range(trials):
                 # Run the input on all target SQLite binaries
-                run_results = self.run(runner)
+                run_results, new_coverage = self.run(runner)
 
                 # Update the population
-                self.update_population(run_results)
+                self.update_population(run_results, new_coverage)
                 
                 # Record the results with bug tracking
                 runner.record_results(run_results=run_results, bug_tracker=self.bug_tracker)
@@ -113,4 +118,4 @@ class MutationCoverageFuzzer:
     def reset(self) -> None:
         self.population = []
         self.seed_index = 0
-        self.coverage = 0
+        self.coverages_seen: Set[frozenset] = set()
