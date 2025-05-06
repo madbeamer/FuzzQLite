@@ -28,6 +28,7 @@ class QueryGenerator:
             "SELECT u.name, p.name FROM users u LEFT OUTER JOIN orders o ON u.id = o.user_id LEFT OUTER JOIN products p ON o.product_id = p.id;",
             "SELECT p.name, r.rating FROM products p RIGHT OUTER JOIN reviews r ON p.id = r.product_id;",
             "SELECT p.name, r.rating FROM products p FULL OUTER JOIN reviews r ON p.id = r.product_id;",
+            "SELECT u1.id AS user1_id, u1.name AS user1_name, u2.id AS user2_id, u2.name AS user2_name, u1.age FROM users u1 JOIN users u2 ON u1.age = u2.age AND u1.id < u2.id ORDER BY u1.age, u1.name, u2.name;",
             
             # Subqueries
             "SELECT name FROM users WHERE id IN (SELECT user_id FROM orders WHERE quantity > 5);",
@@ -64,6 +65,8 @@ class QueryGenerator:
             "INSERT INTO products SELECT id+100, name || ' (Copy)', price*1.1, category, stock FROM products;",
             "INSERT OR REPLACE INTO users (id, name, email, age) VALUES (1, 'Updated User', 'updated@example.com', 40);",
             "INSERT OR IGNORE INTO users (id, name, email, age) VALUES (1, 'Ignored User', 'ignored@example.com', 45);",
+            "INSERT INTO users (name, email, age, joined_date) VALUES ('Alex Smith', 'alex@example.com', 28, date('now')) RETURNING id, name, joined_date;",
+            "INSERT INTO products (name, price, category, stock) VALUES 'Wireless Earbuds', 129.99, 'Electronics', 30)ON CONFLICT(name) DO UPDATE SET stock = stock + 30, price = CASE WHEN price > 129.99 THEN 129.99 ELSE price END;",
             
             # UPDATE queries
             "UPDATE users SET age = age + 1 WHERE id = 1;",
@@ -74,6 +77,8 @@ class QueryGenerator:
             "UPDATE users SET age = (SELECT AVG(age) FROM users);",
             "UPDATE users SET (name, email) = ('New Name', 'new@example.com') WHERE id = 3;",
             "UPDATE OR IGNORE users SET email = 'duplicate@example.com';",
+            "UPDATE users SET score = score + 10 WHERE joined_date > date('now', '-1 month') RETURNING id, name, score AS new_score;",
+            "UPDATE products SET stock = 0 WHERE stock < 5 ORDER BY price DESC LIMIT 10;",
             
             # DELETE queries
             "DELETE FROM reviews WHERE rating < 2;",
@@ -81,6 +86,7 @@ class QueryGenerator:
             "DELETE FROM products WHERE stock = 0;",
             "DELETE FROM users WHERE id IN (SELECT user_id FROM orders WHERE quantity > 10);",
             "DELETE FROM users;", # Delete all rows
+            "DELETE FROM orders WHERE order_date < '2023-01-01' ORDER BY order_date LIMIT 10;",
             
             # Complex queries with CASE
             "SELECT name, CASE WHEN age < 18 THEN 'Minor' WHEN age >= 65 THEN 'Senior' ELSE 'Adult' END as age_group FROM users;",
@@ -98,6 +104,7 @@ class QueryGenerator:
             "SELECT id, category, ROW_NUMBER() OVER (PARTITION BY category ORDER BY price) as row_num FROM products;",
             "SELECT id, category, DENSE_RANK() OVER (PARTITION BY category ORDER BY price) as dense_rank FROM products;",
             "SELECT id, price, PERCENT_RANK() OVER (ORDER BY price) as percent_rank FROM products;",
+            "SELECT u.name, v.product_name, v.recommended FROM users u CROSS JOIN (VALUES ('Smartphone', 1), ('Laptop', 0), ('Headphones', 1)) AS v(product_name, recommended) WHERE u.age BETWEEN 20 AND 40 LIMIT 10;",
             
             # WITH clause (CTEs)
             "WITH active_users AS (SELECT user_id FROM orders GROUP BY user_id HAVING COUNT(*) > 5) SELECT u.* FROM users u JOIN active_users au ON u.id = au.user_id;",
@@ -111,19 +118,28 @@ class QueryGenerator:
             "BEGIN IMMEDIATE TRANSACTION; UPDATE users SET score = score + 10 WHERE id = 5; COMMIT;",
             "BEGIN EXCLUSIVE TRANSACTION; DELETE FROM orders WHERE order_date < '2023-01-01'; COMMIT;",
             "BEGIN TRANSACTION; CREATE TEMPORARY TABLE temp_users AS SELECT * FROM users WHERE age > 30; INSERT INTO users SELECT * FROM temp_users WHERE id > 100; DROP TABLE temp_users; COMMIT;",
+            "BEGIN DEFERRED; UPDATE products SET price = price * 0.9 WHERE category = 'Electronics'; COMMIT;",
+            "SAVEPOINT inventory_update; UPDATE products SET stock = stock - 1 WHERE id = 1; ROLLBACK TO SAVEPOINT inventory_update;",
+            "SAVEPOINT order_update; RELEASE SAVEPOINT order_update;",
             
             # Indexes and schema alterations
             "CREATE INDEX idx_user_age ON users(age);",
             "CREATE UNIQUE INDEX idx_product_name ON products(name);",
             "CREATE INDEX idx_order_date ON orders(order_date);",
+            "CREATE INDEX idx_order_date ON orders(order_date); CREATE INDEX idx_order_date IF NOT EXISTS ON orders(order_date);",
             "DROP INDEX idx_user_age;",
             "CREATE INDEX idx_user_name_age ON users(name, age DESC);",
             "CREATE INDEX idx_reviews_partial ON reviews(rating) WHERE rating > 3;",
+            "CREATE UNIQUE INDEX idn ON users (ID COLLATE NOCASE ASC);",
             "ALTER TABLE users ADD COLUMN last_login TEXT;",
             "ALTER TABLE products RENAME TO inventory;",
             "ALTER TABLE products RENAME COLUMN stock TO quantity;",
+            "ALTER TABLE reviews DROP COLUMN comment;",
             "CREATE TABLE IF NOT EXISTS logs (id INTEGER PRIMARY KEY, event TEXT, timestamp TEXT);",
+            "CREATE TEMP TABLE x (id INTEGER PRIMARY KEY) WITHOUT ROWID;",
             "DROP TABLE IF EXISTS logs;",
+            "REINDEX idx_products_category;",
+            "REINDEX users;",
             
             # UNION and set operations
             "SELECT name FROM users UNION SELECT name FROM products;",
@@ -185,6 +201,9 @@ class QueryGenerator:
             "CREATE TEMPORARY VIEW high_value_orders AS SELECT * FROM orders WHERE quantity * (SELECT price FROM products WHERE id = orders.product_id) > 1000;",
             "DROP VIEW IF EXISTS active_products;",
             "CREATE VIEW product_ratings AS SELECT p.id, p.name, AVG(r.rating) as avg_rating FROM products p LEFT JOIN reviews r ON p.id = r.product_id GROUP BY p.id;",
+
+            # Tables
+            "CREATE TEMPORARY TABLE popular_products AS SELECT .id, p.name, COUNT(o.id) AS order_count FROM products p JOIN orders o ON p.id = o.product_id GROUP BY p.id HAVING order_count > 5 ORDER BY order_count DESC;",
             
             # Triggers
             "CREATE TRIGGER update_stock AFTER INSERT ON orders BEGIN UPDATE products SET stock = stock - NEW.quantity WHERE id = NEW.product_id; END;",
