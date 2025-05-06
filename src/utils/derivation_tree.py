@@ -1,10 +1,10 @@
 import codecs
 import re
 import string
-from typing import List, Tuple, Optional, Any, Callable, Dict
+from typing import List, Tuple, Optional, Any, Callable, Dict, Union
 from graphviz import Digraph
 
-from utils.grammar import is_nonterminal
+from utils.grammar import is_nonterminal, Expansion
 
 
 DerivationTree = Tuple[str, Optional[List[Any]]]
@@ -124,3 +124,24 @@ def display_annotated_tree(tree: DerivationTree,
                         node_attr=annotate_node,
                         edge_attr=annotate_edge,
                         graph_attr=graph_attr)
+
+def expansion_key(symbol: str, 
+                  expansion: Union[Expansion,
+                                   DerivationTree, 
+                                   List[DerivationTree]]) -> str:
+    """Convert (symbol, `expansion`) into a key "SYMBOL -> EXPRESSION". 
+      `expansion` can be an expansion string, a derivation tree,
+         or a list of derivation trees."""
+
+    if isinstance(expansion, tuple):
+        # Expansion or single derivation tree
+        expansion, _ = expansion
+
+    if not isinstance(expansion, str):
+        # Derivation tree
+        children = expansion
+        expansion = all_terminals((symbol, children))
+
+    assert isinstance(expansion, str)
+
+    return symbol + " -> " + expansion

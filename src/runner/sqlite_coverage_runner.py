@@ -18,7 +18,7 @@ from runner.outcome import Outcome
 from runner.run_result import RunResult
 
 from utils.bug_tracker import BugTracker
-from utils.coverage import Location, read_gcov_coverage
+# from utils.coverage import Location, read_gcov_coverage
 
 
 class SQLiteCoverageRunner:
@@ -132,56 +132,94 @@ class SQLiteCoverageRunner:
         Returns:
             A dictionary with execution result information
         """
-        # Create a temporary file for the SQL input
-        with tempfile.NamedTemporaryFile(mode='w+', suffix='.sql', delete=False) as temp_file:
-            modified_query = "BEGIN TRANSACTION;\n" + sql_query + "\n;\nROLLBACK;"
-            temp_file.write(modified_query)
-            temp_file.flush()
-            
-            result = {
-                'returncode': None,
-                'stdout': None,
-                'stderr': None,
-                'coverage': None,
-            }
-            
-            try:
-                # Run SQLite with the input file
-                cmd = [sqlite_path, db_path]
-                with open(temp_file.name, 'r') as sql_file:
-                    process = subprocess.run(
-                        cmd,
-                        stdin=sql_file,
-                        capture_output=True,
-                        text=True,
-                        timeout=self.timeout
-                    )
-                
-                result['returncode'] = process.returncode
-                result['stdout'] = process.stdout
-                result['stderr'] = process.stderr
-                    
-            except subprocess.TimeoutExpired as e:
-                result['returncode'] = -1
-                result['stdout'] = e.stdout
-                result['stderr'] = e.stderr
-            except Exception as e:
-                result['returncode'] = -1
-                result['stderr'] = str(e)
-            finally:
-                # Clean up the temporary file
-                try:
-                    os.unlink(temp_file.name)
-                except:
-                    pass  # Ignore cleanup errors
+        modified_query = "BEGIN TRANSACTION;\n" + sql_query + "\n;\nROLLBACK;"
+        result = {
+            'returncode': None,
+            'stdout': None,
+            'stderr': None,
+            'coverage': None,
+        }
 
-            coverage = self._read_coverage_percentage()
-            if coverage != -1:
-                result['coverage'] = coverage
-            else:
-                result['coverage'] = None
+        try:
+            process = subprocess.Popen(
+                [sqlite_path, db_path],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            
+            result['stdout'], result['stderr'] = process.communicate(input=modified_query, timeout=self.timeout)
+
+            result['returncode'] = -1 if result['stderr'] else 0
+    
+        except subprocess.TimeoutExpired as e:
+            result['returncode'] = -1
+            result['stdout'] = str(e.stdout)
+            result['stderr'] = str(e.stderr)
+        except Exception as e:
+            result['returncode'] = -1
+            result['stderr'] = str(e)
+            
+        return result
+
+    # Run SQLite using a temporary file for the query (slower) (above: using stdin + query as a string)
+    # def _run_sqlite(self, sqlite_path: str, sql_query: str, db_path: str) -> Dict[str, Any]:
+    #     """
+    #     Run a specific SQLite version with the given input.
+        
+    #     Args:
+    #         sqlite_path: Path to the SQLite executable
+    #         sql_query: SQL query
+    #         db_path: Path to the database file
+            
+    #     Returns:
+    #         A dictionary with execution result information
+    #     """
+    #     # Create a temporary file for the SQL input
+    #     with tempfile.NamedTemporaryFile(mode='w+', suffix='.sql', delete=False) as temp_file:
+    #         modified_query = "BEGIN TRANSACTION;\n" + sql_query + "\n;\nROLLBACK;"
+    #         temp_file.write(modified_query)
+    #         temp_file.flush()
+            
+    #         result = {
+    #             'returncode': None,
+    #             'stdout': None,
+    #             'stderr': None,
+    #             'coverage': None,
+    #         }
+            
+    #         try:
+    #             # Run SQLite with the input file
+    #             cmd = [sqlite_path, db_path]
+    #             with open(temp_file.name, 'r') as sql_file:
+    #                 process = subprocess.run(
+    #                     cmd,
+    #                     stdin=sql_file,
+    #                     capture_output=True,
+    #                     text=True,
+    #                     timeout=self.timeout
+    #                 )
                 
-            return result
+    #             result['returncode'] = process.returncode
+    #             result['stdout'] = process.stdout
+    #             result['stderr'] = process.stderr
+                    
+    #         except subprocess.TimeoutExpired as e:
+    #             result['returncode'] = -1
+    #             result['stdout'] = e.stdout
+    #             result['stderr'] = e.stderr
+    #         except Exception as e:
+    #             result['returncode'] = -1
+    #             result['stderr'] = str(e)
+    #         finally:
+    #             # Clean up the temporary file
+    #             try:
+    #                 os.unlink(temp_file.name)
+    #             except:
+    #                 pass  # Ignore cleanup errors
+                
+    #         return result
     
     def _normalize_output(self, output: str) -> str:
         """
@@ -223,7 +261,7 @@ class SQLiteCoverageRunner:
         
         return '\n'.join(normalized_lines)
     
-    def run(self, inp: Tuple[str, str]) -> Tuple[Dict[str, RunResult], Set[Location]]:
+    def run(self, inp: Tuple[str, str]) -> Dict[str, RunResult]: # Tuple[Dict[str, RunResult], Set[Location]]
         """
         Run SQLite with the given input and compare with reference version.
         Restore database only if a true crash is detected (not for invalid queries).
@@ -260,6 +298,14 @@ class SQLiteCoverageRunner:
                 # Target crashed, reference succeeded - this is a true crash, restore the database
                 outcome = Outcome.CRASH
                 self._restore_database(db_path)
+                
+                err_msg = target_result['stderr']
+                match_unsupported = re.search(r"(not currently supported|no such function|RETURNING|near \"NULLS\": syntax error)", err_msg)
+                match_filter = re.search(r"(near \"FROM\": syntax error)", err_msg) and "FILTER" in sql_query
+                match_drop_col = re.search(r"(near \"DROP\": syntax error)", err_msg) and "DROP COLUMN" in sql_query
+                should_ignore = (match_unsupported or match_filter or match_drop_col) and target_sqlite_path == "/home/test/sqlite/sqlite3-3.26.0"
+                if should_ignore:
+                    outcome = Outcome.INVALID_QUERY
             elif not target_crashed and reference_crashed:
                 # Target succeeded, reference crashed
                 outcome = Outcome.REFERENCE_ERROR
@@ -287,10 +333,18 @@ class SQLiteCoverageRunner:
                 reference_result=reference_result)
             
             run_results[target_sqlite_path] = run_result
+
+        # Add coverage information to all RunResult.target_result
+        # Note: We need to do this after all runs to make sure that the gcov files were updated (/home/test/sqlite/sqlite-3.26.0 needs to be run)
+        coverage = self._read_coverage_percentage()
+        for target_sqlite_path in self.target_sqlite_paths:
+            run_result = run_results[target_sqlite_path]
+            run_result.target_result['coverage'] = coverage
         
-        coverage = read_gcov_coverage("/home/test/sqlite/sqlite3.c")
+        # coverage = read_gcov_coverage("/home/test/sqlite/sqlite3.c")
             
-        return run_results, coverage
+        # return run_results, coverage
+        return run_results
     
     def start_fuzzing_session(self):
         """Start a new fuzzing session."""

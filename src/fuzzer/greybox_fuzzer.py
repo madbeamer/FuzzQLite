@@ -13,6 +13,8 @@ from utils.power_schedule import PowerSchedule
 from utils.seed import Seed
 from utils.coverage import Location
 
+from fuzzer.generator_grammar_fuzzer import GeneratorGrammarFuzzer
+
 class GreyboxFuzzer:
     """
     A coverage-guided mutational fuzzer.
@@ -21,6 +23,7 @@ class GreyboxFuzzer:
     def __init__(self, seeds: List[Tuple[str, str]],
                  output_dir: str,
                  schedule: PowerSchedule,
+                 query_fuzzer: GeneratorGrammarFuzzer,
                  mutators: Optional[List[Mutator]] = [IdentitiyMutator()],
                  min_mutations: int = 1,
                  max_mutations: int = 10) -> None:
@@ -31,6 +34,8 @@ class GreyboxFuzzer:
         Args:
             seeds: List of (sql_query, db_path) pairs to mutate
             output_dir: Directory to save the bug reproducers
+            schedule: Power schedule to use for selecting seeds
+            query_fuzzer: Grammar-based fuzzer to generate new queries
             mutators: List of mutator to use
             min_mutations: Minimum number of mutations to apply
             max_mutations: Maximum number of mutations to apply
@@ -40,7 +45,10 @@ class GreyboxFuzzer:
         self.min_mutations = min_mutations
         self.max_mutations = max_mutations
         self.schedule = schedule
-        self.inputs: List[Tuple[str, str]] = []
+
+        self.query_fuzzer = query_fuzzer
+        self.times_to_mutate = random.randint(1, 10)
+        self.times_to_query_gen = random.randint(1, 10)
 
         self.bug_tracker = BugTracker(output_dir=output_dir) # Create a bug tracker to save reproducers
 
@@ -56,25 +64,19 @@ class GreyboxFuzzer:
             candidate = mutator.mutate(candidate)
         return candidate
     
-    def update_population(self, run_results: Dict[str, RunResult], new_coverage: Set[Location]) -> None:
+    def update_population(self, run_results: Dict[str, RunResult]) -> None:
         """
-        Update the population with new inputs if:
-        1. The outcome is PASS and
-        2. The coverage is increased
+        Update the population with new seeds based on the run results.
         """
-        new_coverage = frozenset(new_coverage)
-
         for run_result in run_results.values():
+            new_coverage = run_result.target_result['coverage']
+            if run_result.outcome == Outcome.PASS and new_coverage > self.coverage:
             # FIXME: Currently it is added if it is a PASS for at least one target.
             # Might change this such that it is added iff it is a PASS for all targets
-            # FIXME: Maybe do not even check if it passes (see https://www.fuzzingbook.org/html/GreyboxFuzzer.html)
-            # if run_result.outcome == Outcome.PASS and new_coverage not in self.coverages_seen:
-            #     addToPopulation = True
-            #     break
-            if new_coverage not in self.coverages_seen:
+            # OR: Maybe do not even check if it passes (see https://www.fuzzingbook.org/html/GreyboxFuzzer.html)
+                # Add the new path to the population
                 seed = Seed(data=self.inp)
-                seed.coverage = new_coverage
-                self.coverages_seen.add(new_coverage)
+                self.coverage = new_coverage
                 self.population.append(seed)
                 break
     
@@ -89,14 +91,25 @@ class GreyboxFuzzer:
             # Seeding
             self.inp = self.seeds[self.seed_index]
             self.seed_index += 1
-        else:
+        elif self.times_to_mutate > 0:
             # Mutating
             self.inp = self.create_candidate()
+            self.times_to_mutate -= 1
+        else:
+            # Query generation
+            query = self.query_fuzzer.fuzz()
+            db_path = random.choice(['databases/edge_cases.db', 'databases/small.db'])
+            self.inp = (query, db_path)
+            self.times_to_query_gen -= 1
+
+            # Reset both counters
+            if self.times_to_query_gen <= 0:
+                self.times_to_query_gen = random.randint(1, 10)
+                self.times_to_mutate = random.randint(1, 10)
         
-        self.inputs.append(self.inp)
         return self.inp
     
-    def run(self, runner: SQLiteCoverageRunner) -> Tuple[Dict[str, RunResult], Set[Location]]:
+    def run(self, runner: SQLiteCoverageRunner) -> Dict[str, RunResult]:
         """Run `runner` with fuzz input"""
         return runner.run(self.fuzz())
 
@@ -108,10 +121,12 @@ class GreyboxFuzzer:
             # Run the fuzzer iteratively to update display in real-time
             for _ in range(trials):
                 # Run the input on all target SQLite binaries
-                run_results, new_coverage = self.run(runner)
+                run_results = self.run(runner)
 
                 # Update the population
-                self.update_population(run_results, new_coverage)
+                self.update_population(run_results)
+
+                print((len(self.population)))
                 
                 # Record the results with bug tracking
                 runner.record_results(run_results=run_results, bug_tracker=self.bug_tracker)
@@ -129,4 +144,4 @@ class GreyboxFuzzer:
     def reset(self) -> None:
         self.population = []
         self.seed_index = 0
-        self.coverages_seen: Set[frozenset] = set()
+        self.coverage = 0

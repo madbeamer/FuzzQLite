@@ -3,23 +3,29 @@ import sys
 import os
 from typing import List
 
-# from fuzzer.mutation_fuzzer import MutationFuzzer
-from fuzzer.mutation_coverage_fuzzer import MutationCoverageFuzzer
 from fuzzer.greybox_fuzzer import GreyboxFuzzer
-from fuzzer.counting_greybox_fuzzer import CountingGreyboxFuzzer
+# from fuzzer.counting_greybox_fuzzer import CountingGreyboxFuzzer
 
-# from runner.sqlite_runner import SQLiteRunner
 from runner.sqlite_coverage_runner import SQLiteCoverageRunner
 
-# from mutator.identity_mutator import IdentitiyMutator
-from mutator.sql_randomize_mutator import SQLRandomizeMutator
+# from mutator.sql_randomize_mutator import SQLRandomizeMutator
+from mutator.enhanced_sql_mutator import EnhancedSQLMutator
+from mutator.improved_mutator import ImprovedMutator
 
 from utils.generator.query_generator import QueryGenerator
 from utils.generator.db_generator import DBGenerator
 from utils.generator.seed_generator import SeedGenerator
 
 from utils.power_schedule import PowerSchedule
-from utils.afl_fast_schedule import AFLFastSchedule
+# from utils.afl_fast_schedule import AFLFastSchedule
+
+
+# from fuzzer.grammar_fuzzer import GrammarFuzzer
+from fuzzer.generator_grammar_fuzzer import GeneratorGrammarFuzzer
+# from fuzzer.grammar_coverage_fuzzer import GrammarCoverageFuzzer
+# from fuzzer.pggc_fuzzer import PGGCFuzzer
+# from fuzzer.probabilistic_grammar_coverage_fuzzer import ProbabilisticGrammarCoverageFuzzer
+from utils.grammar import USE_NAMES_BNF_SQL_GRAMMAR, trim_grammar
 
 
 TARGET_SQLITE_PATHS = [
@@ -102,6 +108,19 @@ def main(args: List[str] = None) -> int:
         print(f"Error: Reference SQLite binary not found at {REFERENCE_SQLITE_PATH}")
         return 1
     
+    # Initialize Table Generation Fuzzer
+    # create_table_fuzzer = GeneratorGrammarFuzzer(
+    #     grammar=trim_grammar(SAVE_NAMES_CREATE_TABLE_BNF_SQL_GRAMMAR),
+    #     start_symbol="<start>",
+    #     min_nonterminals=0,
+    #     max_nonterminals=10,
+    #     # disp=True,
+    #     # log=True,
+    # )
+
+    # Initialize Random Query Generator Fuzzer which creates queries containing the same
+    # table names, column names, etc. as used in the Table Generation Fuzzer
+    
     # Generate databases
     db_generator = DBGenerator(db_dir=parsed_args.databases_dir)
     db_paths = db_generator.generate_databases()
@@ -124,33 +143,37 @@ def main(args: List[str] = None) -> int:
         total_trials=parsed_args.trials,
         timeout=3
     )
-    
-    # Create the fuzzer
-    # fuzzer = MutationCoverageFuzzer(
-    #     seed=seeds,
-    #     output_dir=parsed_args.output_dir,
-    #     mutators=[SQLRandomizeMutator()], # IdentityMutator()
-    #     min_mutations=1,
-    #     max_mutations=3  
-    # )
 
-    # fuzzer = GreyboxFuzzer(
+    # min_nonterminals = 0
+    # max_nonterminals = 30
+    # Coverage: 48.11% after 20,000 queries (Time: 1:33:03)
+    query_fuzzer = GeneratorGrammarFuzzer(
+        grammar=trim_grammar(USE_NAMES_BNF_SQL_GRAMMAR),
+        start_symbol="<start>",
+        min_nonterminals=0,
+        max_nonterminals=30,
+        # disp=True,
+        # log=True,
+    )
+
+    fuzzer = GreyboxFuzzer(
+        seeds=seeds,
+        output_dir=parsed_args.output_dir,
+        schedule=PowerSchedule(),
+        query_fuzzer=query_fuzzer,
+        mutators=[EnhancedSQLMutator(), ImprovedMutator()],
+        min_mutations=1,
+        max_mutations=1 # FIXME: Currently just one consecutive mutation is done
+    )
+
+    # fuzzer = CountingGreyboxFuzzer(
     #     seeds=seeds,
     #     output_dir=parsed_args.output_dir,
-    #     schedule=PowerSchedule(),
+    #     schedule=AFLFastSchedule(exponent=5),
     #     mutators=[SQLRandomizeMutator()],
     #     min_mutations=1,
     #     max_mutations=3
     # )
-
-    fuzzer = CountingGreyboxFuzzer(
-        seeds=seeds,
-        output_dir=parsed_args.output_dir,
-        schedule=AFLFastSchedule(exponent=5),
-        mutators=[SQLRandomizeMutator()],
-        min_mutations=1,
-        max_mutations=3
-    )
     
     # Run the fuzzer
     fuzzer.runs(runner=runner, trials=parsed_args.trials)

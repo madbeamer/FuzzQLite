@@ -9,40 +9,68 @@ RE_NONTERMINAL = re.compile(r'(<[^<> ]*>)')
 RE_PARENTHESIZED_EXPR = re.compile(r'\([^()]*\)[?+*]')
 RE_EXTENDED_NONTERMINAL = re.compile(r'(<[^<> ]*>[?+*])')
 
-EXISTING_NAMES: dict = {
-    "table_name": set(),
-    "column_name": set(),
-    "savepoint_name": set(),
-    "index_name": set(),
-    "collation_name": set(),
-    "trigger_name": set(),
-    "view_name": set(),
-    "window_name": set(),
+TABLE_CURRENTLY_USED = None
+
+EXISTING_TABLES = {
+    "users": {
+        "table_name": {"users"},
+        "column_name": {"id", "name", "email", "age", "joined_date", "score"},
+        "index_name": {"idx_users_email"},
+    },
+    "products": {
+        "table_name": {"products"},
+        "column_name": {"id", "name", "price", "category", "stock"},
+        "index_name": {"idx_products_category"},
+    },
+    "orders": {
+        "table_name": {"orders"},
+        "column_name": {"id", "user_id", "product_id", "quantity", "order_date"},
+        "index_name": {"idx_orders_user", "idx_orders_product"},
+    },
+    "reviews": {
+        "table_name": {"reviews"},
+        "column_name": {"id", "user_id", "product_id", "rating", "comment"},
+        "index_name": set(),
+    }
 }
 
-def define_name(name_category: str, table_name: str) -> None:
-    EXISTING_NAMES[name_category].add(table_name)
+def select_random_table() -> None:
+    """Select a random table from the existing names."""
+    global TABLE_CURRENTLY_USED
+    TABLE_CURRENTLY_USED = random.choice(list(EXISTING_TABLES.keys()))
     return None
 
 def use_name(name_category: str) -> Union[None, str]:
-    if len(EXISTING_NAMES[name_category]) == 0:
+    table_stats = EXISTING_TABLES[TABLE_CURRENTLY_USED]
+    if len(table_stats[name_category]) == 0:
         return None # If None is returned, it will not interfere with grammar production at all.
-    name = random.choice(list(EXISTING_NAMES[name_category]))
+    name = random.choice(list(table_stats[name_category]))
     return name
+    
 
-def clear_all_names() -> None:
-    global EXISTING_NAMES
-    EXISTING_NAMES = {
-        "table_name": set(),
-        "column_name": set(),
-        "savepoint_name": set(),
-        "index_name": set(),
-        "collation_name": set(),
-        "trigger_name": set(),
-        "view_name": set(),
-        "window_name": set(),
-    }
-    return None
+# def define_name(name_category: str, table_name: str) -> None:
+#     EXISTING_NAMES[name_category].add(table_name)
+#     return None
+
+# def use_name(name_category: str) -> Union[None, str]:
+#     if len(EXISTING_NAMES[name_category]) == 0:
+#         return None # If None is returned, it will not interfere with grammar production at all.
+#     name = random.choice(list(EXISTING_NAMES[name_category]))
+#     return name
+
+# def clear_all_names() -> None:
+#     global EXISTING_NAMES
+#     EXISTING_NAMES = {
+#         "table_name": set(),
+#         "column_name": set(),
+#         "savepoint_name": set(),
+#         "index_name": set(),
+#         "collation_name": set(),
+#         "trigger_name": set(),
+#         "view_name": set(),
+#         "window_name": set(),
+#     }
+#     return None
 
 
 Option = Dict[str, Any]
@@ -363,6 +391,11 @@ def exp_order(expansion):
     """Return the specified expansion ordering, or None if unspecified"""
     return exp_opt(expansion, 'order')
 
+def set_prob(grammar: Grammar, symbol: str, 
+             expansion: Expansion, prob: Optional[float]) -> None:
+    """Set the probability of the given expansion of grammar[symbol]"""
+    set_opts(grammar, symbol, expansion, opts(prob=prob))
+
 SQL_GRAMMAR: Grammar = {
   "<start>": [
       "<parse>"
@@ -371,7 +404,7 @@ SQL_GRAMMAR: Grammar = {
     "<sql_stmt_list>"
   ],
   "<sql_stmt_list>": [
-    "<sql_stmt> (<SCOL>+ <sql_stmt>)* <SCOL>" # Previously: "<SCOL>* <sql_stmt> (<SCOL>+ <sql_stmt>)* <SCOL>*"
+    "<sql_stmt> (<SCOL> <sql_stmt>)* <SCOL>" # Previously: "<SCOL>* <sql_stmt> (<SCOL>+ <sql_stmt>)* <SCOL>*"
   ],
   "<sql_stmt>": [
     "(<EXPLAIN_> (<QUERY_> <PLAN_>)?)? <h1>"
@@ -1937,16 +1970,16 @@ SQL_GRAMMAR: Grammar = {
       "<DIGIT>+"
   ], # FIXME: Kept very simple
   "<BIND_PARAMETER>": [
-      "'?' <DIGIT>*",
-      "':' <IDENTIFIER>",
-      "'@' <IDENTIFIER>",
-      "'$' <IDENTIFIER>"
+      "?<DIGIT>*",
+      ":<IDENTIFIER>",
+      "@<IDENTIFIER>",
+      "$<IDENTIFIER>"
   ],
   "<STRING_LITERAL>": [
       "<LETTER>+"
   ], # FIXME: Kept very simple
   "<BLOB_LITERAL>": [
-      "'X'<STRING_LITERAL>"
+      "X<STRING_LITERAL>"
   ],
   "<LETTER>": [
       "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z", "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z"
@@ -1959,7 +1992,7 @@ SQL_GRAMMAR: Grammar = {
   ],
 }
 
-BNF_SQL_GRAMMAR = convert_ebnf_grammar(SQL_GRAMMAR)
+# BNF_SQL_GRAMMAR = convert_ebnf_grammar(SQL_GRAMMAR) produced:
 
 BNF_SQL_GRAMMAR = {
     "<start>": ["<parse>"],
@@ -2692,13 +2725,13 @@ BNF_SQL_GRAMMAR = {
     "<IDENTIFIER>": ["<LETTER-1><DIGIT-1>"],
     "<NUMERIC_LITERAL>": ["<DIGIT-2>"],
     "<BIND_PARAMETER>": [
-        "'?' <DIGIT-3>",
-        "':' <IDENTIFIER>",
-        "'@' <IDENTIFIER>",
-        "'$' <IDENTIFIER>",
+        "?<DIGIT-3>",
+        ":<IDENTIFIER>",
+        "@<IDENTIFIER>",
+        "$<IDENTIFIER>",
     ],
     "<STRING_LITERAL>": ["<LETTER-2>"],
-    "<BLOB_LITERAL>": ["'X'<STRING_LITERAL>"],
+    "<BLOB_LITERAL>": ["X<STRING_LITERAL>"],
     "<LETTER>": [
         "a",
         "b",
@@ -3107,7 +3140,7 @@ BNF_SQL_GRAMMAR = {
     "<DIGIT-2>": ["<DIGIT>", "<DIGIT><DIGIT-2>"],
     "<DIGIT-3>": ["", "<DIGIT><DIGIT-3>"],
     "<LETTER-2>": ["<LETTER>", "<LETTER><LETTER-2>"],
-    "<SCOL-1>": ["<SCOL>", "<SCOL><SCOL-1>"],
+    "<SCOL-1>": ["<SCOL>"], # Was <SCOL><SCOL-1> on second element, left one was <SCOL>
     "<symbol-1-1>": ["", "<symbol-1>"],
     "<transaction_name-1>": ["", "<transaction_name>"],
     "<SAVEPOINT_-2>": ["", "<SAVEPOINT_>"],
@@ -3139,54 +3172,441 @@ BNF_SQL_GRAMMAR = {
     "<asc_desc-5>": ["", "<asc_desc>"],
 }
 
-SAVE_NAMES_CREATE_TABLE_BNF_SQL_GRAMMAR = extend_grammar(BNF_SQL_GRAMMAR,
-  {
-      "<sql_stmt_list>": [("<create_table_stmt> <SCOL>", opts(pre=clear_all_names))],
-      "<table_name>": [
-          ("<any_name>",
-           opts(post=lambda table_name: define_name('table_name', table_name))
-          )
-      ],
-      "<column_name>": [
-          ("<any_name>",
-           opts(post=lambda column_name: define_name('column_name', column_name))
-          )
-      ],
-      "<savepoint_name>": [
-          ("<any_name>",
-           opts(post=lambda savepoint_name: define_name('savepoint_name', savepoint_name))
-          )
-      ],
-      "<index_name>": [
-          ("<any_name>",
-           opts(post=lambda index_name: define_name('index_name', index_name))
-          )
-      ],
-      "<collation_name>": [
-          ("<any_name>",
-           opts(post=lambda collation_name: define_name('collation_name', collation_name))
-          )
-      ],
-      "<trigger_name>": [
-          ("<any_name>",
-           opts(post=lambda trigger_name: define_name('trigger_name', trigger_name))
-          )
-      ],
-      "<view_name>": [
-          ("<any_name>",
-           opts(post=lambda view_name: define_name('view_name', view_name))
-          )
-      ],
-      "<window_name>": [
-          ("<any_name>",
-           opts(post=lambda window_name: define_name('window_name', window_name))
-          )
-      ]
-  }
-)
+# SAVE_NAMES_CREATE_TABLE_BNF_SQL_GRAMMAR = extend_grammar(BNF_SQL_GRAMMAR,
+#   {
+#       # Remove EXPLAIN part from grammar
+#       "<sql_stmt>": ["<h1>"], # Was: "<symbol-2-1> <h1>"
+
+#       # Hardcode schema name to "main"
+#       "<schema_name>": ["main"],
+
+#       # Force SELECT * to use SELECT * FROM <something>
+#       "<h60-1>": ["<h60>", "<h60>"],
+
+#       # Remove TEMP or TEMPORARY from <create_table_stmt>
+#       "<create_table_stmt>": [
+#           "<CREATE_> <TABLE_> <symbol-12-1> <symbol-13-1> <table_name> <h9>" # Was: <CREATE_> <h8-1> <TABLE_> <symbol-12-1> <symbol-13-1> <table_name> <h9>
+#       ],
+
+#        # Reduce the number of letters
+#       "<LETTER>": [
+#           "a",
+#           "b",
+#           "c",
+#           "d",
+#           "e",
+#           "f",
+#           "g",
+#       ],
+
+#       # Set <STRING_LITERAL> to single letter
+#       "<STRING_LITERAL>": ["<LETTER>"],
+
+#       # Enforce LIMIT to be followed by DIGIT
+#       "<limit_stmt>": ["<LIMIT_> <DIGIT>"],
+
+#       # Remove ORDER BY statement
+#       "<order_by_stmt-1>": [""],
+#       "<order_by_stmt-2>": [""],
+#       "<order_by_stmt-3>": [""],
+#       "<order_by_stmt-4>": [""],
+#       "<order_by_stmt-5>": [""],
+
+#       "<sql_stmt_list>": [("<create_table_stmt> <SCOL>", opts(pre=clear_all_names))], # Could add: ("<create_virtual_table_stmt> <SCOL>", opts(pre=clear_all_names))
+#       "<table_name>": [
+#           ("<any_name>",
+#            opts(post=lambda table_name: define_name('table_name', table_name))
+#           )
+#       ],
+#       "<column_name>": [
+#           ("<any_name>",
+#            opts(post=lambda column_name: define_name('column_name', column_name))
+#           )
+#       ],
+#       "<savepoint_name>": [
+#           ("<any_name>",
+#            opts(post=lambda savepoint_name: define_name('savepoint_name', savepoint_name))
+#           )
+#       ],
+#       "<index_name>": [
+#           ("<any_name>",
+#            opts(post=lambda index_name: define_name('index_name', index_name))
+#           )
+#       ],
+#       "<collation_name>": [
+#           ("<any_name>",
+#            opts(post=lambda collation_name: define_name('collation_name', collation_name))
+#           )
+#       ],
+#       "<trigger_name>": [
+#           ("<any_name>",
+#            opts(post=lambda trigger_name: define_name('trigger_name', trigger_name))
+#           )
+#       ],
+#       "<view_name>": [
+#           ("<any_name>",
+#            opts(post=lambda view_name: define_name('view_name', view_name))
+#           )
+#       ],
+#       "<window_name>": [
+#           ("<any_name>",
+#            opts(post=lambda window_name: define_name('window_name', window_name))
+#           )
+#       ]
+#   }
+# )
 
 USE_NAMES_BNF_SQL_GRAMMAR = extend_grammar(BNF_SQL_GRAMMAR,
   {
+      # Only do one statement
+      "<sql_stmt_list>": ["<sql_stmt> <SCOL>"], # Was "<sql_stmt> <symbol-116> <SCOL>"
+
+      # Remove EXPLAIN part from grammar
+      "<sql_stmt>": ["<h1>"], # Was: "<symbol-2-1> <h1>"
+
+      # Force SELECT * to use SELECT * FROM <something>
+      "<h60-1>": ["<h60>", "<h60>"],
+
+      # Reduce the number of letters
+      "<LETTER>": [
+          "a",
+          "b",
+          "c",
+          "d",
+          "e",
+          "f",
+          "g",
+      ],
+
+      # Set <STRING_LITERAL> to single letter
+      "<STRING_LITERAL>": ["<LETTER>"],
+
+      # Remove some statements that are not relevant for the test
+      "<h1>": [
+        "<alter_table_stmt>",
+        # "<analyze_stmt>",
+        "<attach_stmt>",
+        "<begin_stmt>",
+        "<commit_stmt>",
+        "<create_index_stmt>",
+        "<create_table_stmt>", # We might remove this
+        "<create_trigger_stmt>",
+        "<create_view_stmt>",
+        "<create_virtual_table_stmt>", # We might remove this
+        "<delete_stmt>",
+        "<delete_stmt_limited>",
+        "<detach_stmt>",
+        "<drop_stmt>",
+        "<insert_stmt>",
+        # "<pragma_stmt>",
+        "<reindex_stmt>",
+        "<release_stmt>",
+        "<rollback_stmt>",
+        "<savepoint_stmt>",
+        "<select_stmt>",
+        "<update_stmt>",
+        "<update_stmt_limited>",
+        "<vacuum_stmt>",
+      ],
+
+      # # Remove <BIND_PARAMETER> from grammar
+      # "<expr>": [
+      #   "<literal_value>",
+      #   # "<BIND_PARAMETER>",
+      #   "<symbol-49-1> <column_name>",
+      #   "<unary_operator> <expr>",
+      #   "<expr> <PIPE2> <expr>",
+      #   "<expr> <h33> <expr>",
+      #   "<expr> <h34> <expr>",
+      #   "<expr> <h35> <expr>",
+      #   "<expr> <h36> <expr>",
+      #   "<expr> <h37> <expr>",
+      #   "<expr> <AND_> <expr>",
+      #   "<expr> <OR_> <expr>",
+      #   "<function_name> <OPEN_PAR> <h38-1> <CLOSE_PAR> <filter_clause-1> <over_clause-1>",
+      #   "<OPEN_PAR> <expr> <symbol-50-1> <CLOSE_PAR>",
+      #   "<CAST_> <OPEN_PAR> <expr> <AS_> <type_name> <CLOSE_PAR>",
+      #   "<expr> <COLLATE_> <collation_name>",
+      #   "<expr> <NOT_-3> <h39> <expr> <symbol-51-1>",
+      #   "<expr> <h40>",
+      #   "<expr> <IS_> <NOT_-4> <expr>",
+      #   "<expr> <NOT_-5> <BETWEEN_> <expr> <AND_> <expr>",
+      #   "<expr> <NOT_-6> <IN_> <h42>",
+      #   "<symbol-53-1> <OPEN_PAR> <select_stmt> <CLOSE_PAR>",
+      #   "<CASE_> <expr-1> <symbol-54-1> <symbol-55-1> <END_>",
+      #   "<raise_function>",
+      # ],
+
+      # Hardcode schema name to "main" (for example small.db becomes automatically main)
+      "<schema_name>": ["main"],
+
+      # Add all supported sqlite types
+      "<type_name>": [
+          "INTEGER",
+          "INT",
+          "TINYINT",
+          "SMALLINT",
+          "MEDIUMINT",
+          "BIGINT",
+          "UNSIGNED BIG INT",
+          "INT2",
+          "INT8",
+          "TEXT",
+          "CHARACTER",
+          "VARCHAR",
+          "VARYING CHARACTER",
+          "NCHAR",
+          "NATIVE CHARACTER",
+          "NVARCHAR",
+          "CLOB",
+          "REAL",
+          "DOUBLE",
+          "DOUBLE PRECISION",
+          "FLOAT",
+          "NUMERIC",
+          "DECIMAL",
+          "BOOLEAN",
+          "DATE",
+          "DATETIME",
+          "BLOB",
+          "NONE"
+      ],
+
+      # Add all supported pragma names and values
+      "<pragma_name>": [
+        "analysis_limit",
+        "auto_vacuum",
+        "automatic_index",
+        "busy_timeout",
+        "cache_size",
+        "cache_spill",
+        "cell_size_check",
+        "checkpoint_fullfsync",
+        "collation_list",
+        "compile_options",
+        "data_store_directory",
+        "data_version",
+        "database_list",
+        "defer_foreign_keys",
+        "empty_result_callbacks",
+        "encoding",
+        "foreign_key_check",
+        "foreign_key_list",
+        "foreign_keys",
+        "freelist_count",
+        "fullfsync",
+        "function_list",
+        "hard_heap_limit",
+        "ignore_check_constraints",
+        "incremental_vacuum",
+        "index_info",
+        "index_list",
+        "index_xinfo",
+        "integrity_check",
+        "journal_mode",
+        "journal_size_limit",
+        "legacy_alter_table",
+        "legacy_file_format",
+        "locking_mode",
+        "max_page_count",
+        "mmap_size",
+        "module_list",
+        "optimize",
+        "page_count",
+        "page_size",
+        "parser_trace",
+        "pragma_list",
+        "query_only",
+        "quick_check",
+        "read_uncommitted",
+        "recursive_triggers",
+        "reverse_unordered_selects",
+        "schema_version",
+        "secure_delete",
+        "shrink_memory",
+        "soft_heap_limit",
+        "stats",
+        "synchronous",
+        "table_info",
+        "table_list",
+        "table_xinfo",
+        "temp_store",
+        "temp_store_directory",
+        "threads",
+        "trusted_schema",
+        "user_version",
+        "vdbe_addoptrace",
+        "vdbe_debug",
+        "vdbe_listing",
+        "vdbe_trace",
+        "wal_autocheckpoint",
+        "wal_checkpoint",
+        "writable_schema"
+      ],
+
+      "<pragma_value>": [
+        # "<signed_number>", # I think this is not needed as for example 1 means ON and 0 means OFF
+        "ON",
+        "OFF",
+        "TRUE",
+        "FALSE",
+        "YES", 
+        "NO",
+        "DELETE",
+        "PERSIST",
+        "MEMORY",
+        "WAL",
+        "TRUNCATE",
+        "NORMAL",
+        "FULL",
+        "NONE",
+        "EXCLUSIVE",
+        "DEFAULT",
+        "RESET"
+      ],
+
+      # Add all supported function names
+      "<function_name>": [
+        # Core scalar functions
+        "abs", "changes", "char", "coalesce", "concat", "concat_ws", "format", 
+        "glob", "hex", "ifnull", "iif", "instr", "last_insert_rowid", "length",
+        "like", "likelihood", "likely", "load_extension", "lower", "ltrim",
+        "max", "min", "nullif", "octet_length", "printf", "quote", "random",
+        "randomblob", "replace", "round", "rtrim", "sign", "soundex", 
+        "sqlite_compileoption_get", "sqlite_compileoption_used", 
+        "sqlite_offset", "sqlite_source_id", "sqlite_version",
+        "substr", "substring", "total_changes", "trim", "typeof", 
+        "unicode", "unlikely", "upper", "zeroblob",
+        
+        # Date and time functions
+        "date", "time", "datetime", "julianday", "strftime", "unixepoch", "timediff",
+        
+        # Math functions (require SQLITE_ENABLE_MATH_FUNCTIONS)
+        "acos", "acosh", "asin", "asinh", "atan", "atan2", "atanh", 
+        "ceil", "ceiling", "cos", "cosh", "degrees", "exp", "floor", 
+        "ln", "log", "log10", "log2", "mod", "pi", "pow", "power",
+        "radians", "sin", "sinh", "sqrt", "tan", "tanh", "trunc",
+        
+        # JSON functions
+        "json", "json_array", "json_array_length", "json_extract", "json_insert",
+        "json_object", "json_patch", "json_remove", "json_replace", "json_set",
+        "json_type", "json_valid", "json_quote", "json_group_array", 
+        "json_group_object", "json_each", "json_tree", "jsonb", "jsonb_array", 
+        "jsonb_array_length", "jsonb_extract", "jsonb_insert", "jsonb_object", 
+        "jsonb_patch", "jsonb_remove", "jsonb_replace", "jsonb_set", "jsonb_type", 
+        "jsonb_valid", "jsonb_quote", "jsonb_group_array", "jsonb_group_object",
+        
+        # Aggregate functions
+        "avg", "count", "group_concat", "max", "min", "string_agg", "sum", "total",
+        
+        # Window functions
+        "row_number", "rank", "dense_rank", "percent_rank", "cume_dist", 
+        "ntile", "lag", "lead", "first_value", "last_value", "nth_value"
+      ],
+
+      # Add all supported table function names
+      "<table_function_name>": [
+        # JSON table functions
+        "json_each",
+        "json_tree",
+        "jsonb_each",
+        "jsonb_tree",
+        
+        # SQLite pragma table functions
+        "pragma_function_list",
+        "pragma_module_list",
+        "pragma_table_list",
+        "pragma_table_info",
+        "pragma_table_xinfo",
+        "pragma_index_list",
+        "pragma_index_info",
+        "pragma_index_xinfo",
+        "pragma_foreign_key_list",
+        "pragma_collation_list",
+        "pragma_compile_options",
+        
+        # Utility table functions
+        "generate_series",
+        "carray",
+        
+        # FTS virtual tables (when enabled)
+        "fts3aux",
+        "fts4aux",
+        "fts5vocab",
+        
+        # RTrees (when enabled)
+        "rtreenode",
+        "rtreeproper"
+      ],
+
+      # Add all supported module names
+      "<module_name>": [
+        # Full-text search modules
+        "fts3",
+        "fts4",
+        "fts5",
+        
+        # R-Tree modules for spatial indexing
+        "rtree",
+        "rtree_i32",
+        
+        # JSON modules
+        "json",
+        "json1",
+        
+        # CSV and structured data
+        "csv",
+        "carray",
+        
+        # Geographic modules
+        "geopoly",
+        
+        # Series and numbers
+        "series",
+        "generate_series",
+        "wholenumber",
+        
+        # Archive modules
+        "zipfile",
+        
+        # Spell checking
+        "spellfix1",
+        
+        # Autocompletion
+        "completion",
+        
+        # Other utility modules
+        "unionvtab",
+        "swarmvtab",
+        "dbstat",
+        "memvfs",
+        "zorder"
+      ],
+
+      # Set <any_name> to the correct name based on <h32>
+      # Previously:
+      # "<drop_stmt>": ["<DROP_> <h32> <symbol-46-1> <symbol-47-1> <any_name>"],
+      # "<h32>": ["<INDEX_>", "<TABLE_>", "<TRIGGER_>", "<VIEW_>"],
+      "<drop_stmt>": [
+          "<DROP_> <INDEX_> <symbol-46-1> <symbol-47-1> <index_name>",
+          "<DROP_> <TABLE_> <symbol-46-1> <symbol-47-1> <table_name>",
+          "<DROP_> <TRIGGER_> <symbol-46-1> <symbol-47-1> <trigger_name>",
+          "<DROP_> <VIEW_> <symbol-46-1> <symbol-47-1> <view_name>",
+      ],
+          
+      # Enforce LIMIT to be followed by DIGIT
+      "<limit_stmt>": ["<LIMIT_> <DIGIT>"],
+
+      # Remove ORDER BY statement
+      "<order_by_stmt-1>": [""],
+      "<order_by_stmt-2>": [""],
+      "<order_by_stmt-3>": [""],
+      "<order_by_stmt-4>": [""],
+      "<order_by_stmt-5>": [""],
+
+      # Before the first expansion, decide randomly for a table to choose the names from
+      "<parse>": [("<sql_stmt_list>", opts(pre=select_random_table))],
+
       # NOTE: If <table_name> is used in a <create_table_stmt>, we try to create a table with a name that already exists
       # This issue also exists with other names like <column_name> when for example inserting an existing column
       "<table_name>": [
@@ -3204,39 +3624,9 @@ USE_NAMES_BNF_SQL_GRAMMAR = extend_grammar(BNF_SQL_GRAMMAR,
            opts(pre=lambda: use_name('table_name') or use_name('index_name') or None)
           )
       ],
-      "<savepoint_name>": [
-          ("<any_name>",
-           opts(pre=lambda: use_name('savepoint_name'))
-          )
-      ],
       "<index_name>": [
           ("<any_name>",
            opts(pre=lambda: use_name('index_name'))
-          )
-      ],
-      "<collation_name>": [
-          ("<any_name>",
-           opts(pre=lambda: use_name('collation_name'))
-          )
-      ],
-      "<trigger_name>": [
-          ("<any_name>",
-           opts(pre=lambda: use_name('trigger_name'))
-          )
-      ],
-      "<view_name>": [
-          ("<any_name>",
-           opts(pre=lambda: use_name('view_name'))
-          )
-      ],
-      "<window_name>": [
-          ("<any_name>",
-           opts(pre=lambda: use_name('window_name'))
-          )
-      ],
-      "<base_window_name>": [
-          ("<any_name>",
-           opts(pre=lambda: use_name('window_name')) # Intentionally the same as <window_name>
           )
       ],
       "<foreign_table>": [
@@ -3244,5 +3634,35 @@ USE_NAMES_BNF_SQL_GRAMMAR = extend_grammar(BNF_SQL_GRAMMAR,
            opts(pre=lambda: use_name('table_name')) # Intentionally the same as <table_name>
           )
       ]
+      # "<savepoint_name>": [
+      #     ("<any_name>",
+      #      opts(pre=lambda: use_name('savepoint_name'))
+      #     )
+      # ],
+      # "<collation_name>": [
+      #     ("<any_name>",
+      #      opts(pre=lambda: use_name('collation_name'))
+      #     )
+      # ],
+      # "<trigger_name>": [
+      #     ("<any_name>",
+      #      opts(pre=lambda: use_name('trigger_name'))
+      #     )
+      # ],
+      # "<view_name>": [
+      #     ("<any_name>",
+      #      opts(pre=lambda: use_name('view_name'))
+      #     )
+      # ],
+      # "<window_name>": [
+      #     ("<any_name>",
+      #      opts(pre=lambda: use_name('window_name'))
+      #     )
+      # ],
+      # "<base_window_name>": [
+      #     ("<any_name>",
+      #      opts(pre=lambda: use_name('window_name')) # Intentionally the same as <window_name>
+      #     )
+      # ]
   }
 )
