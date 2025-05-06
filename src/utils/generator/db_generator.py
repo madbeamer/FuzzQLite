@@ -3,7 +3,7 @@ import sqlite3
 import random
 import string
 import shutil
-from typing import List, Dict, Any
+from typing import List
 
 class DBGenerator:
     """
@@ -88,18 +88,14 @@ class DBGenerator:
         
         Args:
             conn: SQLite database connection
-            size: "empty", "small", "large", "edge_cases"
+            size: Size of the data to generate (small, edge_cases)
         """
         cursor = conn.cursor()
-        
-        if size == "empty":
-            return  # Schema only, no data
         
         # Data size configurations
         sizes = {
             "small": {"users": 10, "products": 20, "orders": 50, "reviews": 30},
-            "large": {"users": 1000, "products": 500, "orders": 5000, "reviews": 2000},
-            "edge_cases": {"users": 50, "products": 100, "orders": 200, "reviews": 100}
+            "edge_cases": {"users": 10, "products": 20, "orders": 50, "reviews": 30}
         }
         
         config = sizes.get(size)
@@ -173,9 +169,7 @@ class DBGenerator:
             List of paths to generated databases (excluding backup copies)
         """
         db_configs = [
-            ("empty.db", "empty"),
             ("small.db", "small"),
-            ("large.db", "large"),
             ("edge_cases.db", "edge_cases")
         ]
         
