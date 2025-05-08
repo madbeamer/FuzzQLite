@@ -11,7 +11,7 @@ from mutator.identity_mutator import IdentitiyMutator
 from utils.bug_tracker import BugTracker
 from utils.power_schedule import PowerSchedule
 from utils.seed import Seed
-from utils.coverage import Location
+# from utils.coverage import Location
 
 from fuzzer.generator_grammar_fuzzer import GeneratorGrammarFuzzer
 
