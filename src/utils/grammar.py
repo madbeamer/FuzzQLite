@@ -2,6 +2,8 @@ import sys
 import random
 import re
 import copy
+import os
+import json
 from typing import Dict, Any, List, Tuple, Union, Optional, Set, Callable
 
 START_SYMBOL = "<start>"
@@ -11,66 +13,88 @@ RE_EXTENDED_NONTERMINAL = re.compile(r'(<[^<> ]*>[?+*])')
 
 TABLE_CURRENTLY_USED = None
 
-EXISTING_TABLES = {
-    "users": {
-        "table_name": {"users"},
-        "column_name": {"id", "name", "email", "age", "joined_date", "score"},
-        "index_name": {"idx_users_email"},
-    },
-    "products": {
-        "table_name": {"products"},
-        "column_name": {"id", "name", "price", "category", "stock"},
-        "index_name": {"idx_products_category"},
-    },
-    "orders": {
-        "table_name": {"orders"},
-        "column_name": {"id", "user_id", "product_id", "quantity", "order_date"},
-        "index_name": {"idx_orders_user", "idx_orders_product"},
-    },
-    "reviews": {
-        "table_name": {"reviews"},
-        "column_name": {"id", "user_id", "product_id", "rating", "comment"},
-        "index_name": set(),
-    }
-}
+SCHEMA_INFO = None
+
+def load_schema_info(schema_path: str = "databases/schema_info.json") -> Dict:
+    """
+    Load schema information from the JSON file.
+    
+    Args:
+        schema_path: Path to the schema JSON file
+        
+    Returns:
+        Dictionary containing the schema information
+    """
+    global SCHEMA_INFO
+    
+    # Load schema from JSON file if not already loaded
+    if SCHEMA_INFO is None:
+        if not os.path.exists(schema_path):
+            raise FileNotFoundError(f"Schema file not found: {schema_path}")
+            
+        with open(schema_path, 'r') as f:
+            SCHEMA_INFO = json.load(f)
+    
+    return SCHEMA_INFO
 
 def select_random_table() -> None:
-    """Select a random table from the existing names."""
+    """
+    Select a random table from the schema JSON file.
+    
+    Sets the global TABLE_CURRENTLY_USED variable.
+    """
     global TABLE_CURRENTLY_USED
-    TABLE_CURRENTLY_USED = random.choice(list(EXISTING_TABLES.keys()))
+    
+    # Load schema if not already loaded
+    schema_info = load_schema_info()
+    
+    # Filter out views (only use tables)
+    tables = [table_name for table_name, info in schema_info.items() 
+              if not info.get("is_view", False)]
+    
+    # Select a random table
+    if tables:
+        TABLE_CURRENTLY_USED = random.choice(tables)
+    else:
+        raise ValueError("No tables found in schema JSON file")
+    
     return None
 
 def use_name(name_category: str) -> Union[None, str]:
-    table_stats = EXISTING_TABLES[TABLE_CURRENTLY_USED]
-    if len(table_stats[name_category]) == 0:
-        return None # If None is returned, it will not interfere with grammar production at all.
-    name = random.choice(list(table_stats[name_category]))
-    return name
+    """
+    Get a random name from the specified category for the currently selected table.
     
-
-# def define_name(name_category: str, table_name: str) -> None:
-#     EXISTING_NAMES[name_category].add(table_name)
-#     return None
-
-# def use_name(name_category: str) -> Union[None, str]:
-#     if len(EXISTING_NAMES[name_category]) == 0:
-#         return None # If None is returned, it will not interfere with grammar production at all.
-#     name = random.choice(list(EXISTING_NAMES[name_category]))
-#     return name
-
-# def clear_all_names() -> None:
-#     global EXISTING_NAMES
-#     EXISTING_NAMES = {
-#         "table_name": set(),
-#         "column_name": set(),
-#         "savepoint_name": set(),
-#         "index_name": set(),
-#         "collation_name": set(),
-#         "trigger_name": set(),
-#         "view_name": set(),
-#         "window_name": set(),
-#     }
-#     return None
+    Args:
+        name_category: Category of the name to use:
+                      - "table_name": Table names
+                      - "column_names": Column names
+                      - "index_names": Index names
+                      
+    Returns:
+        A randomly selected name from the specified category, or None if the category is empty
+    """
+    global TABLE_CURRENTLY_USED
+    
+    # Load schema if not already loaded
+    schema_info = load_schema_info()
+    
+    # Ensure a table is selected
+    if TABLE_CURRENTLY_USED is None:
+        select_random_table()
+    
+    # Get the table information
+    if TABLE_CURRENTLY_USED not in schema_info:
+        raise ValueError(f"Table {TABLE_CURRENTLY_USED} not found in schema")
+    
+    table_info = schema_info[TABLE_CURRENTLY_USED]
+    
+    # Get names from the specified category
+    if name_category in table_info:
+        names = table_info[name_category]
+        if isinstance(names, list) and names:
+            return random.choice(names)
+    
+    return None
 
 
 Option = Dict[str, Any]
@@ -3172,90 +3196,6 @@ BNF_SQL_GRAMMAR = {
     "<asc_desc-5>": ["", "<asc_desc>"],
 }
 
-# SAVE_NAMES_CREATE_TABLE_BNF_SQL_GRAMMAR = extend_grammar(BNF_SQL_GRAMMAR,
-#   {
-#       # Remove EXPLAIN part from grammar
-#       "<sql_stmt>": ["<h1>"], # Was: "<symbol-2-1> <h1>"
-
-#       # Hardcode schema name to "main"
-#       "<schema_name>": ["main"],
-
-#       # Force SELECT * to use SELECT * FROM <something>
-#       "<h60-1>": ["<h60>", "<h60>"],
-
-#       # Remove TEMP or TEMPORARY from <create_table_stmt>
-#       "<create_table_stmt>": [
-#           "<CREATE_> <TABLE_> <symbol-12-1> <symbol-13-1> <table_name> <h9>" # Was: <CREATE_> <h8-1> <TABLE_> <symbol-12-1> <symbol-13-1> <table_name> <h9>
-#       ],
-
-#        # Reduce the number of letters
-#       "<LETTER>": [
-#           "a",
-#           "b",
-#           "c",
-#           "d",
-#           "e",
-#           "f",
-#           "g",
-#       ],
-
-#       # Set <STRING_LITERAL> to single letter
-#       "<STRING_LITERAL>": ["<LETTER>"],
-
-#       # Enforce LIMIT to be followed by DIGIT
-#       "<limit_stmt>": ["<LIMIT_> <DIGIT>"],
-
-#       # Remove ORDER BY statement
-#       "<order_by_stmt-1>": [""],
-#       "<order_by_stmt-2>": [""],
-#       "<order_by_stmt-3>": [""],
-#       "<order_by_stmt-4>": [""],
-#       "<order_by_stmt-5>": [""],
-
-#       "<sql_stmt_list>": [("<create_table_stmt> <SCOL>", opts(pre=clear_all_names))], # Could add: ("<create_virtual_table_stmt> <SCOL>", opts(pre=clear_all_names))
-#       "<table_name>": [
-#           ("<any_name>",
-#            opts(post=lambda table_name: define_name('table_name', table_name))
-#           )
-#       ],
-#       "<column_name>": [
-#           ("<any_name>",
-#            opts(post=lambda column_name: define_name('column_name', column_name))
-#           )
-#       ],
-#       "<savepoint_name>": [
-#           ("<any_name>",
-#            opts(post=lambda savepoint_name: define_name('savepoint_name', savepoint_name))
-#           )
-#       ],
-#       "<index_name>": [
-#           ("<any_name>",
-#            opts(post=lambda index_name: define_name('index_name', index_name))
-#           )
-#       ],
-#       "<collation_name>": [
-#           ("<any_name>",
-#            opts(post=lambda collation_name: define_name('collation_name', collation_name))
-#           )
-#       ],
-#       "<trigger_name>": [
-#           ("<any_name>",
-#            opts(post=lambda trigger_name: define_name('trigger_name', trigger_name))
-#           )
-#       ],
-#       "<view_name>": [
-#           ("<any_name>",
-#            opts(post=lambda view_name: define_name('view_name', view_name))
-#           )
-#       ],
-#       "<window_name>": [
-#           ("<any_name>",
-#            opts(post=lambda window_name: define_name('window_name', window_name))
-#           )
-#       ]
-#   }
-# )
-
 USE_NAMES_BNF_SQL_GRAMMAR = extend_grammar(BNF_SQL_GRAMMAR,
   {
       # Only do one statement
@@ -3269,13 +3209,183 @@ USE_NAMES_BNF_SQL_GRAMMAR = extend_grammar(BNF_SQL_GRAMMAR,
 
       # Reduce the number of letters
       "<LETTER>": [
-          "a",
-          "b",
-          "c",
-          "d",
-          "e",
-          "f",
-          "g",
+        "a",
+        "b",
+        "c",
+        "d",
+        "e",
+        "f",
+        "g",
+      ],
+
+      # Remove current time/date/timestamp  
+      "<literal_value>": [
+        "<NUMERIC_LITERAL>",
+        "<STRING_LITERAL>",
+        "<BLOB_LITERAL>",
+        "<NULL_>",
+        "<TRUE_>",
+        "<FALSE_>",
+        # "<CURRENT_TIME_>",
+        # "<CURRENT_DATE_>",
+        # "<CURRENT_TIMESTAMP_>"
+      ],
+      "<keyword>": [
+        "<ABORT_>",
+        "<ACTION_>",
+        "<ADD_>",
+        "<AFTER_>",
+        "<ALL_>",
+        "<ALTER_>",
+        "<ANALYZE_>",
+        "<AND_>",
+        "<AS_>",
+        "<ASC_>",
+        "<ATTACH_>",
+        "<AUTOINCREMENT_>",
+        "<BEFORE_>",
+        "<BEGIN_>",
+        "<BETWEEN_>",
+        "<BY_>",
+        "<CASCADE_>",
+        "<CASE_>",
+        "<CAST_>",
+        "<CHECK_>",
+        "<COLLATE_>",
+        "<COLUMN_>",
+        "<COMMIT_>",
+        "<CONFLICT_>",
+        "<CONSTRAINT_>",
+        "<CREATE_>",
+        "<CROSS_>",
+        # "<CURRENT_DATE_>",
+        # "<CURRENT_TIME_>",
+        # "<CURRENT_TIMESTAMP_>",
+        "<DATABASE_>",
+        "<DEFAULT_>",
+        "<DEFERRABLE_>",
+        "<DEFERRED_>",
+        "<DELETE_>",
+        "<DESC_>",
+        "<DETACH_>",
+        "<DISTINCT_>",
+        "<DROP_>",
+        "<EACH_>",
+        "<ELSE_>",
+        "<END_>",
+        "<ESCAPE_>",
+        "<EXCEPT_>",
+        "<EXCLUSIVE_>",
+        "<EXISTS_>",
+        "<EXPLAIN_>",
+        "<FAIL_>",
+        "<FOR_>",
+        "<FOREIGN_>",
+        "<FROM_>",
+        "<FULL_>",
+        "<GLOB_>",
+        "<GROUP_>",
+        "<HAVING_>",
+        "<IF_>",
+        "<IGNORE_>",
+        "<IMMEDIATE_>",
+        "<IN_>",
+        "<INDEX_>",
+        "<INDEXED_>",
+        "<INITIALLY_>",
+        "<INNER_>",
+        "<INSERT_>",
+        "<INSTEAD_>",
+        "<INTERSECT_>",
+        "<INTO_>",
+        "<IS_>",
+        "<ISNULL_>",
+        "<JOIN_>",
+        "<KEY_>",
+        "<LEFT_>",
+        "<LIKE_>",
+        "<LIMIT_>",
+        "<MATCH_>",
+        "<NATURAL_>",
+        "<NO_>",
+        "<NOT_>",
+        "<NOTNULL_>",
+        "<NULL_>",
+        "<OF_>",
+        "<OFFSET_>",
+        "<ON_>",
+        "<OR_>",
+        "<ORDER_>",
+        "<OUTER_>",
+        "<PLAN_>",
+        "<PRAGMA_>",
+        "<PRIMARY_>",
+        "<QUERY_>",
+        "<RAISE_>",
+        "<RECURSIVE_>",
+        "<REFERENCES_>",
+        "<REGEXP_>",
+        "<REINDEX_>",
+        "<RELEASE_>",
+        "<RENAME_>",
+        "<REPLACE_>",
+        "<RESTRICT_>",
+        "<RIGHT_>",
+        "<ROLLBACK_>",
+        "<ROW_>",
+        "<ROWS_>",
+        "<SAVEPOINT_>",
+        "<SELECT_>",
+        "<SET_>",
+        "<TABLE_>",
+        "<TEMP_>",
+        "<TEMPORARY_>",
+        "<THEN_>",
+        "<TO_>",
+        "<TRANSACTION_>",
+        "<TRIGGER_>",
+        "<UNION_>",
+        "<UNIQUE_>",
+        "<UPDATE_>",
+        "<USING_>",
+        "<VACUUM_>",
+        "<VALUES_>",
+        "<VIEW_>",
+        "<VIRTUAL_>",
+        "<WHEN_>",
+        "<WHERE_>",
+        "<WITH_>",
+        "<WITHOUT_>",
+        "<FIRST_VALUE_>",
+        "<OVER_>",
+        "<PARTITION_>",
+        "<RANGE_>",
+        "<PRECEDING_>",
+        "<UNBOUNDED_>",
+        "<CURRENT_>",
+        "<FOLLOWING_>",
+        "<CUME_DIST_>",
+        "<DENSE_RANK_>",
+        "<LAG_>",
+        "<LAST_VALUE_>",
+        "<LEAD_>",
+        "<NTH_VALUE_>",
+        "<NTILE_>",
+        "<PERCENT_RANK_>",
+        "<RANK_>",
+        "<ROW_NUMBER_>",
+        "<GENERATED_>",
+        "<ALWAYS_>",
+        "<STORED_>",
+        "<TRUE_>",
+        "<FALSE_>",
+        "<WINDOW_>",
+        "<NULLS_>",
+        "<FIRST_>",
+        "<LAST_>",
+        "<FILTER_>",
+        "<GROUPS_>",
+        "<EXCLUDE_>"
       ],
 
       # Set <STRING_LITERAL> to single letter
@@ -3472,7 +3582,7 @@ USE_NAMES_BNF_SQL_GRAMMAR = extend_grammar(BNF_SQL_GRAMMAR,
         "glob", "hex", "ifnull", "iif", "instr", "last_insert_rowid", "length",
         "like", "likelihood", "likely", "load_extension", "lower", "ltrim",
         "max", "min", "nullif", "octet_length", "printf", "quote", "random",
-        "randomblob", "replace", "round", "rtrim", "sign", "soundex", 
+        "randomblob", "replace", "rtrim", "sign", "soundex", # remove "round"
         "sqlite_compileoption_get", "sqlite_compileoption_used", 
         "sqlite_offset", "sqlite_source_id", "sqlite_version",
         "substr", "substring", "total_changes", "trim", "typeof", 
@@ -3616,17 +3726,17 @@ USE_NAMES_BNF_SQL_GRAMMAR = extend_grammar(BNF_SQL_GRAMMAR,
       ],
       "<column_name>": [
           ("<any_name>",
-           opts(pre=lambda: use_name('column_name'))
+           opts(pre=lambda: use_name('column_names'))
           )
       ],
       "<table_or_index_name>": [
           ("<any_name>",
-           opts(pre=lambda: use_name('table_name') or use_name('index_name') or None)
+           opts(pre=lambda: use_name('table_name') or use_name('index_names') or None)
           )
       ],
       "<index_name>": [
           ("<any_name>",
-           opts(pre=lambda: use_name('index_name'))
+           opts(pre=lambda: use_name('index_names'))
           )
       ],
       "<foreign_table>": [
