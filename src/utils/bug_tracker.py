@@ -10,7 +10,8 @@ class BugTracker:
     Class to track and save bug reproducers.
     
     When a bug or crash is found, this class creates a directory with all
-    required files for reproducing the issue.
+    required files for reproducing the issue. Bug reproducers are organized by
+    SQLite version and bug type.
     """
     
     def __init__(self, output_dir: str = "bug_reproducers"):
@@ -49,9 +50,33 @@ class BugTracker:
         Returns:
             Path to the created bug reproducer directory
         """
-        # Create a unique directory for this bug with microseconds for uniqueness
+        # Determine which version to use for the directory structure
+        version_for_dir = target_sqlite_version
+        if bug_type == Outcome.REFERENCE_ERROR:
+            version_for_dir = reference_sqlite_version
+        
+        # Create version directory if it doesn't exist
+        version_dir = os.path.join(self.output_dir, version_for_dir)
+        if not os.path.exists(version_dir):
+            os.makedirs(version_dir)
+        
+        # Create bug type directory if it doesn't exist
+        bug_type_lower = bug_type.lower()
+        if bug_type == Outcome.CRASH:
+            bug_type_dir = os.path.join(version_dir, "crashes")
+        elif bug_type == Outcome.LOGIC_BUG:
+            bug_type_dir = os.path.join(version_dir, "logic_bugs")
+        elif bug_type == Outcome.REFERENCE_ERROR:
+            bug_type_dir = os.path.join(version_dir, "reference_errors")
+        else:
+            bug_type_dir = os.path.join(version_dir, bug_type_lower)
+        
+        if not os.path.exists(bug_type_dir):
+            os.makedirs(bug_type_dir)
+        
+        # Create a unique directory for this bug with bug type prefix, version and microseconds for uniqueness
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-        bug_dir = os.path.join(self.output_dir, f"{bug_type.lower()}_{timestamp}")
+        bug_dir = os.path.join(bug_type_dir, f"{bug_type.lower()}_{version_for_dir}_{timestamp}")
         
         # Additional safety: if directory still exists (extremely unlikely), add a counter
         counter = 1
@@ -184,3 +209,4 @@ class BugTracker:
             f.write("- `reduced_test.sql` contains a minimized version that still triggers the bug\n")
             f.write("- `test.db` is the database file used when the bug was discovered\n")
             f.write("- `version.txt` contains the SQLite version where this bug was found\n")
+            
