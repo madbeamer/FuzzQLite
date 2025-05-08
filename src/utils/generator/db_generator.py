@@ -14,16 +14,14 @@ class DBGenerator:
     Ensures both small.db and edge_cases.db have the exact same tables and structure.
     """
     
-    def __init__(self, db_dir: str = "databases", silent: bool = False):
+    def __init__(self, db_dir: str = "databases"):
         """
         Initialize the database generator.
         
         Args:
             db_dir: Directory to store generated databases
-            silent: Whether to suppress messages
         """
         self.db_dir = db_dir
-        self.silent = silent
         
         # Create the database directory if it doesn't exist
         if not os.path.exists(db_dir):
@@ -55,9 +53,6 @@ class DBGenerator:
         # STEP 1: First generate a common schema definition
         schema_definition = self._generate_random_schema()
         
-        if not self.silent:
-            print("Generated common schema definition for all databases")
-        
         # STEP 2: Create each database using the SAME schema but different data
         for db_name, size in db_configs:
             db_path = os.path.join(self.db_dir, db_name)
@@ -69,9 +64,6 @@ class DBGenerator:
             # Create a backup copy
             backup_path = os.path.join(self.db_dir, f"{os.path.splitext(db_name)[0]}_copy.db")
             shutil.copy2(db_path, backup_path)
-            
-            if not self.silent:
-                print(f"Created {db_path} with {size} data")
         
         # STEP 3: Generate schema JSON based on the first database
         schema_json_path = os.path.join(self.db_dir, "schema_info.json")
@@ -79,11 +71,6 @@ class DBGenerator:
         
         with open(schema_json_path, 'w') as f:
             json.dump(schema_info, f, indent=2)
-            
-        if not self.silent:
-            print(f"\nSchema JSON written to {schema_json_path}")
-            self._verify_schema_match(db_paths[0], schema_json_path)
-            self._verify_schemas_identical(db_paths[0], db_paths[1])
         
         return db_paths
     
@@ -203,11 +190,6 @@ class DBGenerator:
             
             # Generate data
             self._generate_data(conn, size)
-            
-            # Print schema for debugging
-            if not self.silent:
-                print(f"\nSchema for {db_path}:")
-                self._dump_schema(db_path)
         
         finally:
             conn.close()
@@ -360,8 +342,6 @@ class DBGenerator:
             db_path1: Path to the first database
             db_path2: Path to the second database
         """
-        print(f"\nVerifying that schemas are identical between {db_path1} and {db_path2}...")
-        
         # Extract schemas for both databases
         schema1 = self._extract_schema_from_db(db_path1)
         schema2 = self._extract_schema_from_db(db_path2)
@@ -376,9 +356,6 @@ class DBGenerator:
             print(f"Only in {db_path2}: {tables2 - tables1}")
             return
         
-        # For each table, compare columns and indices
-        any_mismatch = False
-        
         for table_name in tables1:
             if "is_view" in schema1[table_name] and schema1[table_name]["is_view"]:
                 # Skip views for now
@@ -392,7 +369,6 @@ class DBGenerator:
                 print(f"ERROR: Table {table_name} has different columns!")
                 print(f"{db_path1}: {cols1}")
                 print(f"{db_path2}: {cols2}")
-                any_mismatch = True
             
             # Compare column types
             types1 = schema1[table_name]["column_types"]
@@ -403,7 +379,6 @@ class DBGenerator:
                     print(f"ERROR: Column {table_name}.{col} has different types!")
                     print(f"{db_path1}: {types1[col]}")
                     print(f"{db_path2}: {types2[col]}")
-                    any_mismatch = True
             
             # Compare indices
             idx1 = set(schema1[table_name]["index_names"])
@@ -415,10 +390,6 @@ class DBGenerator:
                 print(f"{db_path2}: {sorted(idx2)}")
                 print(f"Only in {db_path1}: {idx1 - idx2}")
                 print(f"Only in {db_path2}: {idx2 - idx1}")
-                any_mismatch = True
-        
-        if not any_mismatch:
-            print("SUCCESS: Both databases have identical schemas!")
 
     def _verify_schema_match(self, db_path: str, json_path: str) -> None:
         """
@@ -428,8 +399,6 @@ class DBGenerator:
             db_path: Path to the SQLite database
             json_path: Path to the JSON schema file
         """
-        print("\nVerifying schema match between database and JSON...")
-        
         # Load JSON schema
         with open(json_path, 'r') as f:
             schema_json = json.load(f)
@@ -443,8 +412,6 @@ class DBGenerator:
         db_tables = [row[0] for row in cursor.fetchall()]
         
         for table_name in db_tables:
-            print(f"\nChecking table: {table_name}")
-            
             # Make sure table is in JSON
             if table_name not in schema_json:
                 print(f"ERROR: Table {table_name} is in database but missing from JSON!")
@@ -473,8 +440,6 @@ class DBGenerator:
                     print(f"Missing in JSON: {missing}")
                 if extra:
                     print(f"Extra in JSON: {extra}")
-            else:
-                print(f"MATCH: All columns for {table_name} match correctly.")
             
             # Get exact indices from database
             cursor.execute(f"PRAGMA index_list({table_name})")
@@ -499,16 +464,12 @@ class DBGenerator:
                     print(f"Missing in JSON: {missing}")
                 if extra:
                     print(f"Extra in JSON: {extra}")
-            else:
-                print(f"MATCH: All indices for {table_name} match correctly.")
         
         # Check views
         cursor.execute("SELECT name FROM sqlite_master WHERE type='view'")
         db_views = [row[0] for row in cursor.fetchall()]
         
         for view_name in db_views:
-            print(f"\nChecking view: {view_name}")
-            
             # Make sure view is in JSON
             if view_name not in schema_json:
                 print(f"ERROR: View {view_name} is in database but missing from JSON!")
@@ -537,8 +498,6 @@ class DBGenerator:
                     print(f"Missing in JSON: {missing}")
                 if extra:
                     print(f"Extra in JSON: {extra}")
-            else:
-                print(f"MATCH: All columns for view {view_name} match correctly.")
         
         # Close connection
         conn.close()
@@ -648,21 +607,3 @@ class DBGenerator:
         # Default
         else:
             return None
-    
-    def _dump_schema(self, db_path: str) -> None:
-        """
-        Dump the schema of a database for verification.
-        
-        Args:
-            db_path: Path to the database
-        """
-        try:
-            result = subprocess.run(
-                ["sqlite3", db_path, ".schema"],
-                capture_output=True,
-                text=True,
-                check=True
-            )
-            print(result.stdout)
-        except subprocess.CalledProcessError as e:
-            print(f"Error dumping schema: {e}")
