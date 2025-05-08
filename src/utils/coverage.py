@@ -1,6 +1,6 @@
 from typing import Set, Tuple
 
-Location = Tuple[str, int]  # (function_name, line_number)
+Location = Tuple[str, int]  # (c_file, line_number)
 
 def read_gcov_coverage(c_file) -> Set[Location]:
     gcov_file = c_file + ".gcov"
