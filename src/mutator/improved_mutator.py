@@ -1,6 +1,8 @@
 import random
 import re
-from typing import Tuple
+import os
+import json
+from typing import Tuple, List
 
 from mutator.mutator import Mutator
 
@@ -10,8 +12,8 @@ class ImprovedMutator(Mutator):
     A mutator that modifies parts of SQL queries to trigger bugs.
     """
     
-    def __init__(self):
-        """Initialize the SQL randomize mutator."""
+    def __init__(self, schema_path: str = "databases/schema_info.json"):
+        """Initialize the SQL mutator."""
         super().__init__()
 
         self.weights = [0.2, 0.1, 0.1, 0.15, 0.25, 0.2]
@@ -35,9 +37,8 @@ class ImprovedMutator(Mutator):
             "LENGTH", "LOWER", "UPPER", "SUBSTR", "REPLACE", "HEX", "TYPEOF" # remove "ROUND"
         ]
 
-        self.db_tables = [
-            "users", "products", "orders", "reviews"
-        ]
+        # Load table names from schema JSON file
+        self.db_tables = self._load_table_names(schema_path)
 
         self.pragma_statements = [
             "PRAGMA foreign_keys = ON;",
@@ -47,6 +48,29 @@ class ImprovedMutator(Mutator):
             "PRAGMA encoding = 'UTF16';",
             "PRAGMA encoding = 'UTF16be';",
         ]
+    
+    def _load_table_names(self, schema_path: str) -> List[str]:
+        try:
+            if not os.path.exists(schema_path):
+                print(f"Warning: Schema file not found at {schema_path}.")
+                return []
+                
+            with open(schema_path, 'r') as f:
+                schema_info = json.load(f)
+            
+            # Extract table names (exclude views)
+            table_names = [table_name for table_name, info in schema_info.items() 
+                          if not info.get("is_view", False)]
+            
+            if not table_names:
+                print("Warning: No tables found in schema file.")
+                return []
+                
+            return table_names
+            
+        except Exception as e:
+            print(f"Error loading table names from schema: {e}.")
+            return []
 
     def mutate(self, inp: Tuple[str, str]) -> Tuple[str, str]:
         """
@@ -259,6 +283,11 @@ class ImprovedMutator(Mutator):
             
             rand_pos = random.choice(positions)
             table = random.choice(self.db_tables)
+
+            if not table:
+                self.weights[5] = 0.0
+                return self._find_strategy(input_data, self.weights)
+
             subquery = f"(SELECT * FROM {table})"
 
             # Extract content after FROM, then remove the first word and add the subquery
