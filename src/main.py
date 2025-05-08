@@ -25,7 +25,6 @@ from utils.grammar import USE_NAMES_BNF_SQL_GRAMMAR, trim_grammar
 # from fuzzer.generator_grammar_fuzzer import GeneratorGrammarFuzzer
 # from fuzzer.grammar_coverage_fuzzer import GrammarCoverageFuzzer
 # from fuzzer.probabilistic_grammar_coverage_fuzzer import ProbabilisticGrammarCoverageFuzzer
-
 from fuzzer.pggc_fuzzer import PGGCFuzzer
 
 
