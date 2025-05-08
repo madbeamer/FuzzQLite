@@ -179,7 +179,7 @@ def main(args: List[str] = None) -> int:
         output_dir=parsed_args.output_dir,
         schedule=AFLFastSchedule(exponent=5),
         query_fuzzer=query_fuzzer,
-        mutators=[ImprovedMutator(), EnhancedSQLMutator()],
+        mutators=[ImprovedMutator()], # EnhancedSQLMutator()
         min_mutations=1,
         max_mutations=3
     )
