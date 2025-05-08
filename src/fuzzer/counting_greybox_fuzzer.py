@@ -13,6 +13,8 @@ from utils.power_schedule import PowerSchedule, getPathID
 from utils.seed import Seed
 from utils.coverage import Location
 
+from fuzzer.generator_grammar_fuzzer import GeneratorGrammarFuzzer
+
 
 class CountingGreyboxFuzzer:
     """
@@ -22,6 +24,7 @@ class CountingGreyboxFuzzer:
     def __init__(self, seeds: List[Tuple[str, str]],
                  output_dir: str,
                  schedule: PowerSchedule,
+                 query_fuzzer: GeneratorGrammarFuzzer,
                  mutators: Optional[List[Mutator]] = [IdentitiyMutator()],
                  min_mutations: int = 1,
                  max_mutations: int = 10) -> None:
@@ -32,6 +35,8 @@ class CountingGreyboxFuzzer:
         Args:
             seeds: List of (sql_query, db_path) pairs to mutate
             output_dir: Directory to save the bug reproducers
+            schedule: Power schedule to use for selecting seeds
+            query_fuzzer: Grammar-based fuzzer to generate new queries
             mutators: List of mutator to use
             min_mutations: Minimum number of mutations to apply
             max_mutations: Maximum number of mutations to apply
@@ -41,6 +46,10 @@ class CountingGreyboxFuzzer:
         self.min_mutations = min_mutations
         self.max_mutations = max_mutations
         self.schedule = schedule
+
+        self.query_fuzzer = query_fuzzer
+        self.times_to_mutate = random.randint(1, 10)
+        self.times_to_query_gen = random.randint(1, 10)
 
         self.bug_tracker = BugTracker(output_dir=output_dir) # Create a bug tracker to save reproducers
 
@@ -56,19 +65,18 @@ class CountingGreyboxFuzzer:
             candidate = mutator.mutate(candidate)
         return candidate
     
-    def update_population(self, run_results: Dict[str, RunResult], path_id: str) -> None:
+    def update_population(self, run_results: Dict[str, RunResult], path_id: str, is_new_path: bool) -> None:
         """
         Update the population with new seeds based on the run results.
         """
         for run_result in run_results.values():
-            if run_result.outcome == Outcome.PASS and path_id not in self.path_ids_seen:
+            if run_result.outcome == Outcome.PASS and is_new_path:
             # FIXME: Currently it is added if it is a PASS for at least one target.
             # Might change this such that it is added iff it is a PASS for all targets
             # OR: Maybe do not even check if it passes (see https://www.fuzzingbook.org/html/GreyboxFuzzer.html)
                 # Add the new path to the population
                 seed = Seed(data=self.inp)
                 seed.path_id = path_id
-                self.path_ids_seen.add(path_id)
                 self.population.append(seed)
                 break
     
@@ -83,9 +91,21 @@ class CountingGreyboxFuzzer:
             # Seeding
             self.inp = self.seeds[self.seed_index]
             self.seed_index += 1
-        else:
+        elif self.times_to_mutate > 0:
             # Mutating
             self.inp = self.create_candidate()
+            self.times_to_mutate -= 1
+        else:
+            # Query generation
+            query = self.query_fuzzer.fuzz()
+            db_path = random.choice(['databases/edge_cases.db', 'databases/small.db'])
+            self.inp = (query, db_path)
+            self.times_to_query_gen -= 1
+
+            # Reset both counters
+            if self.times_to_query_gen <= 0:
+                self.times_to_query_gen = random.randint(1, 10)
+                self.times_to_mutate = random.randint(1, 10)
         
         return self.inp
     
@@ -104,14 +124,16 @@ class CountingGreyboxFuzzer:
                 run_results, new_coverage = self.run(runner)
 
                 # Update the path frequency
+                is_new_path = False
                 path_id = getPathID(new_coverage)
                 if path_id not in self.schedule.path_frequency:
                     self.schedule.path_frequency[path_id] = 1
+                    is_new_path = True
                 else:
                     self.schedule.path_frequency[path_id] += 1
 
                 # Update the population
-                self.update_population(run_results, path_id)
+                self.update_population(run_results, path_id, is_new_path)
 
                 print(len(self.population))
                 
@@ -131,5 +153,4 @@ class CountingGreyboxFuzzer:
     def reset(self) -> None:
         self.population = []
         self.seed_index = 0
-        self.path_ids_seen = set()
         self.schedule.path_frequency = {}
