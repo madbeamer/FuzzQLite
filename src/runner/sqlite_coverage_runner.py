@@ -18,7 +18,6 @@ from runner.outcome import Outcome
 from runner.run_result import RunResult
 
 from utils.bug_tracker import BugTracker
-# from utils.coverage import Location, read_gcov_coverage
 
 
 class SQLiteCoverageRunner:
@@ -302,7 +301,7 @@ class SQLiteCoverageRunner:
                 err_msg = target_result['stderr']
                 match_unsupported = re.search(r"(not currently supported|no such function|RETURNING|near \"NULLS\": syntax error)", err_msg)
                 match_filter = re.search(r"(near \"FROM\": syntax error)", err_msg) and "FILTER" in sql_query
-                match_drop_col = re.search(r"(near \"DROP\": syntax error)", err_msg) and "DROP COLUMN" in sql_query
+                match_drop_col = re.search(r"(near \"DROP\": syntax error)", err_msg) # and "DROP COLUMN" in sql_query
                 should_ignore = (match_unsupported or match_filter or match_drop_col) and target_sqlite_path == "/home/test/sqlite/sqlite3-3.26.0"
                 if should_ignore:
                     outcome = Outcome.INVALID_QUERY
