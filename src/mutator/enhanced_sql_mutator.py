@@ -33,8 +33,7 @@ class EnhancedSQLMutator(Mutator):
         
         self.sql_functions = [
             "COUNT", "SUM", "AVG", "MIN", "MAX", "ABS", "COALESCE",
-            "LENGTH", "LOWER", "UPPER", "SUBSTR", "REPLACE",
-            "ROUND", "HEX", "TYPEOF", "IFNULL", "NULLIF", "JULIANDAY",
+            "LENGTH", "LOWER", "UPPER", "SUBSTR", "REPLACE", "HEX", "TYPEOF", "IFNULL", "NULLIF", "JULIANDAY", # remove "ROUND"
             "DATE", "TIME", "DATETIME", "STRFTIME", "RANDOM", "TOTAL"
         ]
         
@@ -270,14 +269,14 @@ class EnhancedSQLMutator(Mutator):
         column = random.choice(columns)
         
         # Functions that can safely wrap any column
-        safe_functions = ["IFNULL", "COALESCE", "ABS", "TYPEOF", "LENGTH", "UPPER", "LOWER", "ROUND"]
+        safe_functions = ["IFNULL", "COALESCE", "ABS", "TYPEOF", "LENGTH", "UPPER", "LOWER"] # remove "ROUND"
         func = random.choice(safe_functions)
         
         # Ensure there's appropriate second arguments for functions that need them
         if func == "IFNULL" or func == "COALESCE":
             replacement = f"{func}({column}, 0)"
-        elif func == "ROUND":
-            replacement = f"{func}({column}, 0)"
+        # elif func == "ROUND": # remove "ROUND"
+        #     replacement = f"{func}({column}, 0)"
         else:
             replacement = f"{func}({column})"
         
@@ -363,7 +362,7 @@ class EnhancedSQLMutator(Mutator):
             "SUBSTR('abc', 1, 10)",
             "LENGTH(x'00')",
             "ABS(-1)",
-            "ROUND(1.0/2.0)",
+            # "ROUND(1.0/2.0)", # remove "ROUND"
             "json_extract('{\"a\":1}', '$.a')",
             "(SELECT 1)"
         ]
