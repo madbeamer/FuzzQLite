@@ -118,15 +118,28 @@ class BugTracker:
         
         return bug_dir
     
+    # Process stdout and stderr to limit to 50 lines max
+    def limit_output(output, max_lines=50):
+        if not output:
+            return "No output available"
+        
+        lines = output.splitlines()
+        if len(lines) <= max_lines:
+            return output
+        
+        limited_lines = lines[:max_lines]
+        limited_output = "\n".join(limited_lines)
+        return limited_output + f"\n\n[Output truncated to {max_lines} lines.]"
+    
     def _create_readme(self,
-                      bug_dir: str,
-                      bug_type: str,
-                      sql_query: str,
-                      target_sqlite_version: str,
-                      target_result: Dict[str, Any],
-                      reference_sqlite_version: str,
-                      reference_result: Dict[str, Any],
-                      ) -> None:
+                    bug_dir: str,
+                    bug_type: str,
+                    sql_query: str,
+                    target_sqlite_version: str,
+                    target_result: Dict[str, Any],
+                    reference_sqlite_version: str,
+                    reference_result: Dict[str, Any],
+                    ) -> None:
         """
         Create a README.md file describing the bug.
         
@@ -139,10 +152,11 @@ class BugTracker:
             reference_sqlite_version: SQLite version of the reference (for logic bugs or reference errors)
             reference_result: Result from the reference SQLite (for logic bugs or reference errors)
         """
-        target_stdout = target_result['stdout'] if target_result['stdout'] else "No output available"
-        target_stderr = target_result['stderr'] if target_result['stderr'] else "No error message available"
-        reference_stdout = reference_result['stdout'] if reference_result['stdout'] else "No output available"
-        reference_stderr = reference_result['stderr'] if reference_result['stderr'] else "No error message available"
+
+        target_stdout = self.limit_output(target_result.get('stdout', ''))
+        target_stderr = self.limit_output(target_result.get('stderr', ''))
+        reference_stdout = self.limit_output(reference_result.get('stdout', ''))
+        reference_stderr = self.limit_output(reference_result.get('stderr', ''))
 
         with open(os.path.join(bug_dir, "README.md"), "w") as f:
             # Write header
