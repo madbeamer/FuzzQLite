@@ -221,43 +221,52 @@ class CountingSQLiteCoverageRunner:
                 
     #         return result
     
-    def _normalize_output(self, output: str) -> str:
+    def _normalize_output(self, output: str, query: str) -> str:
         """
         Normalize output to handle floating point differences and other variations.
         
         Args:
             output: Raw SQLite output
+            query: The SQL query that produced the output
             
         Returns:
             Normalized output
         """
         lines = output.strip().split('\n')
+        
+        # If no content at all, return empty string
+        if not lines:
+            return ""
+        
         normalized_lines = []
         
         for line in lines:
-            # Handle empty lines
+            # Skip completely empty lines that aren't part of the actual data
             if not line.strip():
                 continue
-                
-            # Split by common delimiters
+            
             parts = line.split('|')
             normalized_parts = []
             
             for part in parts:
-                part = part.strip()
+                part_stripped = part.strip()
                 
-                # Try to handle floating point numbers
-                try:
-                    float_val = float(part)
-                    # Round to a reasonable precision (e.g., 8 decimal places)
-                    if '.' in part:
+                # Only normalize if it looks like a float (contains a decimal point)
+                if part_stripped and '.' in part_stripped:
+                    try:
+                        float_val = float(part_stripped)
                         normalized_parts.append(f"{float_val:.8f}")
-                    else:
+                    except ValueError:
                         normalized_parts.append(part)
-                except ValueError:
+                else:
                     normalized_parts.append(part)
             
-            normalized_lines.append('|'.join(normalized_parts))
+            normalized_line = '|'.join(normalized_parts)
+            normalized_lines.append(normalized_line)
+        
+        # Sort lines if "ORDER BY" is not in the query (case insensitive)
+        if normalized_lines and "order by" not in query.lower():
+            normalized_lines.sort()
         
         return '\n'.join(normalized_lines)
     
@@ -312,9 +321,9 @@ class CountingSQLiteCoverageRunner:
                 self._restore_database(db_path)
             elif not target_crashed and not reference_crashed:
                 # Both succeeded, compare outputs
-                normalized_output_target = self._normalize_output(target_result['stdout'])
-                normalized_output_reference = self._normalize_output(reference_result['stdout'])
-                
+                normalized_output_target = self._normalize_output(target_result['stdout'], sql_query)
+                normalized_output_reference = self._normalize_output(reference_result['stdout'], sql_query)
+
                 if normalized_output_target != normalized_output_reference:
                     outcome = Outcome.LOGIC_BUG
                 else:
