@@ -189,6 +189,8 @@ class QueryGenerator:
         queries.extend(self._generate_function_queries())
         queries.extend(self._generate_window_function_queries())
         queries.extend(self._generate_schema_queries())
+        queries.extend(self._generate_materialized_queries())
+        queries.extend(self._generate_nested_queries())
         
         return queries
     
@@ -230,13 +232,14 @@ class QueryGenerator:
         return queries
     
     def _generate_join_queries(self) -> List[str]:
-        """Generate JOIN queries."""
+        """Generate JOIN queries, including complex and unusual join patterns."""
         queries = []
         
         # Make sure we have at least 2 tables
         if len(self.table_names) < 2:
             return queries
         
+        # --- Standard JOIN queries  ---
         for _ in range(3):
             # Get two random tables
             table1, table2 = self._get_random_tables(2)
@@ -287,6 +290,171 @@ class QueryGenerator:
         # Cross JOIN
         table1, table2 = self._get_random_tables(2)
         queries.append(f"SELECT * FROM {table1} CROSS JOIN {table2};")
+        
+        # --- More complex JOIN queries ---
+        # Weird chained JOIN pattern
+        if len(self.table_names) >= 3:
+            table1, table2, table3 = self._get_random_tables(3)
+            pk1 = self._get_primary_key_column(table1)
+            pk2 = self._get_primary_key_column(table2)
+            pk3 = self._get_primary_key_column(table3)
+            col1 = self._get_random_column(table1)
+            
+            # Chained JOIN with mixed types and no explicit ON clause for the last join
+            queries.append(f"""
+                SELECT 1 as count 
+                FROM {table1} 
+                INNER JOIN {table2} ON {table1}.{pk1} = {table2}.{pk2}
+                RIGHT OUTER JOIN {table3} ON {table2}.{pk2} = {table3}.{pk3}
+                ORDER BY {table1}.{col1};
+            """)
+            
+            # Another weird join pattern with multiple conditions
+            queries.append(f"""
+                SELECT {table1}.{pk1}, {table2}.{pk2}, {table3}.{pk3}
+                FROM {table1}
+                LEFT JOIN {table2} ON {table1}.{pk1} = {table2}.{pk2}
+                INNER JOIN {table3} ON {table1}.{col1} = {table3}.{pk3}
+                WHERE {table2}.{pk2} IS NULL OR {table3}.{pk3} > 10;
+            """)
+        
+        # Complex JOIN with a view if available
+        if self.view_names and len(self.table_names) >= 2:
+            view = self._get_random_view()
+            table1, table2 = self._get_random_tables(2)
+            pk1 = self._get_primary_key_column(table1)
+            pk2 = self._get_primary_key_column(table2)
+            view_col = self._get_random_column(view)
+            
+            # Join with a view
+            queries.append(f"""
+                SELECT {table1}.{pk1}, v.{view_col}, {table2}.{pk2}
+                FROM {table1}
+                INNER JOIN {view} v ON {table1}.{pk1} = v.{view_col}
+                LEFT OUTER JOIN {table2} ON v.{view_col} = {table2}.{pk2}
+                ORDER BY {table1}.{pk1};
+            """)
+        
+        # NATURAL JOIN
+        if len(self.table_names) >= 2:
+            table1, table2 = self._get_random_tables(2)
+            queries.append(f"SELECT * FROM {table1} NATURAL JOIN {table2};")
+            queries.append(f"SELECT * FROM {table1} NATURAL LEFT JOIN {table2};")
+        
+        # JOIN with USING clause
+        if len(self.table_names) >= 2:
+            table1, table2 = self._get_random_tables(2)
+            pk = self._get_primary_key_column(table1)  # Assuming same PK name
+            queries.append(f"SELECT * FROM {table1} JOIN {table2} USING ({pk});")
+        
+        # Complex multi-level JOIN structure
+        if len(self.table_names) >= 4:
+            tables = self._get_random_tables(4)
+            pks = [self._get_primary_key_column(t) for t in tables]
+            
+            queries.append(f"""
+                SELECT t1.{pks[0]}, t2.{pks[1]}, t3.{pks[2]}, t4.{pks[3]}
+                FROM {tables[0]} t1
+                LEFT JOIN (
+                    {tables[1]} t2 
+                    INNER JOIN {tables[2]} t3 ON t2.{pks[1]} = t3.{pks[2]}
+                ) ON t1.{pks[0]} = t2.{pks[1]}
+                RIGHT OUTER JOIN {tables[3]} t4 ON t3.{pks[2]} = t4.{pks[3]};
+            """)
+        
+        # JOIN with a derived table/subquery
+        table = self._get_random_table()
+        pk = self._get_primary_key_column(table)
+        col = self._get_random_column(table)
+        
+        queries.append(f"""
+            SELECT t.{pk}, d.avg_value
+            FROM {table} t
+            JOIN (
+                SELECT {col}, AVG({pk}) as avg_value
+                FROM {table}
+                GROUP BY {col}
+                HAVING COUNT(*) > 1
+            ) d ON t.{col} = d.{col}
+            WHERE t.{pk} > d.avg_value;
+        """)
+        
+        # JOIN with CASE expression in the ON clause
+        if len(self.table_names) >= 2:
+            table1, table2 = self._get_random_tables(2)
+            pk1 = self._get_primary_key_column(table1)
+            pk2 = self._get_primary_key_column(table2)
+            col1 = self._get_random_column(table1)
+            col2 = self._get_random_column(table2)
+            
+            queries.append(f"""
+                SELECT t1.{pk1}, t2.{pk2}
+                FROM {table1} t1
+                LEFT JOIN {table2} t2 ON 
+                    CASE 
+                        WHEN t1.{col1} IS NULL THEN t1.{pk1} = t2.{pk2}
+                        ELSE t1.{col1} = t2.{col2}
+                    END
+                WHERE t1.{pk1} < 100;
+            """)
+        
+        # Multiple chained JOINs with mixed styles and complex conditions
+        if len(self.table_names) >= 3:
+            table1, table2, table3 = self._get_random_tables(3)
+            pk1 = self._get_primary_key_column(table1)
+            pk2 = self._get_primary_key_column(table2)
+            pk3 = self._get_primary_key_column(table3)
+            col1 = self._get_random_column(table1)
+            col2 = self._get_random_column(table2)
+            col3 = self._get_random_column(table3)
+            
+            # Extremely complex nested JOIN structure
+            queries.append(f"""
+                SELECT 
+                    t1.{pk1}, 
+                    t2.{pk2}, 
+                    t3.{pk3},
+                    CASE WHEN t2.{col2} IS NULL THEN 'Missing' ELSE 'Present' END as status
+                FROM {table1} t1
+                LEFT JOIN {table2} t2 
+                    ON t1.{pk1} = t2.{pk2} AND t1.{col1} IS NOT NULL
+                RIGHT JOIN (
+                    SELECT * FROM {table3}
+                    WHERE {pk3} IN (
+                        SELECT {pk3} FROM {table3} WHERE {col3} > 0
+                    )
+                ) t3 
+                    ON t2.{col2} = t3.{col3} OR (t2.{pk2} = t3.{pk3} AND t2.{col2} IS NULL)
+                WHERE (t1.{pk1} % 2 = 0 OR t3.{pk3} % 2 = 1)
+                ORDER BY 
+                    CASE 
+                        WHEN t1.{pk1} IS NULL THEN t3.{pk3}
+                        ELSE t1.{pk1}
+                    END;
+            """)
+            
+            # JOIN chain with lateral join-like pattern
+            queries.append(f"""
+                SELECT t1.{pk1}, t2.{pk2}, t3.{pk3}, grp.cnt
+                FROM {table1} t1
+                JOIN {table2} t2 
+                    ON t1.{pk1} = t2.{pk2}
+                LEFT JOIN {table3} t3 
+                    ON t2.{pk2} = t3.{pk3}
+                JOIN (
+                    SELECT {col1}, COUNT(*) as cnt
+                    FROM {table1} 
+                    GROUP BY {col1}
+                ) grp 
+                    ON t1.{col1} = grp.{col1}
+                WHERE t3.{col3} < (
+                    SELECT AVG({col3}) FROM {table3}
+                    WHERE {pk3} IN (
+                        SELECT {pk2} FROM {table2}
+                        WHERE {col2} = t1.{col1}
+                    )
+                );
+            """)
         
         return queries
     
@@ -907,7 +1075,7 @@ class QueryGenerator:
             queries.append(f"SELECT IFNULL({col}, 0) FROM {table};")
         
         # SQLite-specific functions
-        queries.append("SELECT random();")
+        # queries.append("SELECT random();")
         queries.append("SELECT quote('string''with quotes');")
         queries.append("SELECT typeof(42), typeof('text'), typeof(3.14), typeof(NULL);")
         
@@ -1077,6 +1245,679 @@ class QueryGenerator:
         
         # DROP trigger
         queries.append(f"DROP TRIGGER IF EXISTS {trigger_name};")
+        
+        return queries
+    
+    def _generate_materialized_queries(self) -> List[str]:
+        """
+        Generate queries with explicit MATERIALIZED and NOT MATERIALIZED hints,
+        along with other advanced SQL features.
+        """
+        queries = []
+        
+        # Example with explicit MATERIALIZED
+        queries.append("""
+            WITH t(a) AS MATERIALIZED (SELECT json('{"x": 10}'))
+            SELECT json_extract(a, '$.x') FROM t;
+        """)
+        
+        # Multiple CTEs with different materialization strategies
+        queries.append("""
+            WITH 
+            t1(a) AS MATERIALIZED (SELECT 1),
+            t2(b) AS NOT MATERIALIZED (SELECT 2),
+            t3(c) AS (SELECT 3)
+            SELECT t1.a, t2.b, t3.c FROM t1, t2, t3;
+        """)
+        
+        # --- Materialization with dynamic data ---
+        
+        # Get some tables and columns for building dynamic queries
+        if self.table_names:
+            table = self._get_random_table()
+            pk = self._get_primary_key_column(table)
+            cols = self._get_random_columns(table, min_count=2, max_count=3)
+            
+            # CTE with materialization and table data
+            queries.append(f"""
+                WITH data AS MATERIALIZED (
+                    SELECT {pk}, {', '.join(cols)}
+                    FROM {table}
+                    WHERE {pk} < 100
+                )
+                SELECT * FROM data
+                WHERE {cols[0]} IS NOT NULL;
+            """)
+            
+            # Multiple CTEs with mixed materialization
+            col1 = cols[0]
+            col2 = cols[1] if len(cols) > 1 else cols[0]
+            
+            queries.append(f"""
+                WITH 
+                raw_data AS MATERIALIZED (
+                    SELECT {pk}, {col1}, {col2}
+                    FROM {table}
+                    WHERE {pk} > 0
+                ),
+                aggregated AS NOT MATERIALIZED (
+                    SELECT {col1}, COUNT(*) as count, SUM({pk}) as total
+                    FROM raw_data
+                    GROUP BY {col1}
+                ),
+                filtered AS (
+                    SELECT * FROM aggregated
+                    WHERE count > 1
+                )
+                SELECT 
+                    r.{pk},
+                    r.{col1},
+                    a.count,
+                    f.total
+                FROM raw_data r
+                LEFT JOIN aggregated a ON r.{col1} = a.{col1}
+                LEFT JOIN filtered f ON a.{col1} = f.{col1};
+            """)
+        
+        # --- Complex materialized queries with functions and expressions ---
+        
+        # JSON functions with NOT MATERIALIZED
+        queries.append("""
+            WITH 
+            json_data(doc) AS NOT MATERIALIZED (
+                SELECT json('{"id": 123, "values": [1, 2, 3], "nested": {"key": "value"}}')
+            ),
+            extracted(id, first_val, key_val) AS MATERIALIZED (
+                SELECT 
+                    json_extract(doc, '$.id'),
+                    json_extract(doc, '$.values[0]'),
+                    json_extract(doc, '$.nested.key')
+                FROM json_data
+            )
+            SELECT * FROM extracted;
+        """)
+        
+        # Math functions with materialization
+        queries.append("""
+            WITH 
+            numbers(n) AS MATERIALIZED (
+                SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5
+            ),
+            calculations AS NOT MATERIALIZED (
+                SELECT 
+                    n,
+                    n*n as squared,
+                    pow(n, 3) as cubed,
+                    sqrt(n) as square_root
+                FROM numbers
+            )
+            SELECT * FROM calculations
+            ORDER BY n;
+        """)
+        
+        # Date functions
+        queries.append("""
+            WITH 
+            dates(d) AS MATERIALIZED (
+                SELECT date('now') UNION ALL
+                SELECT date('now', '+1 day') UNION ALL
+                SELECT date('now', '+2 days') UNION ALL
+                SELECT date('now', '+1 month') UNION ALL
+                SELECT date('now', '+1 year')
+            ),
+            formatted AS NOT MATERIALIZED (
+                SELECT 
+                    d,
+                    strftime('%Y', d) as year,
+                    strftime('%m', d) as month,
+                    strftime('%d', d) as day
+                FROM dates
+            )
+            SELECT * FROM formatted;
+        """)
+        
+        # Recursive CTE with materialization
+        queries.append("""
+            WITH RECURSIVE 
+            fibonacci(a, b) AS NOT MATERIALIZED (
+                SELECT 0, 1
+                UNION ALL
+                SELECT b, a+b FROM fibonacci
+                WHERE b < 100
+            )
+            SELECT a as fibonacci_number FROM fibonacci;
+        """)
+        
+        # --- Combination of materialization with other advanced features ---
+        
+        if len(self.table_names) >= 2:
+            table1, table2 = self._get_random_tables(2)
+            pk1 = self._get_primary_key_column(table1)
+            pk2 = self._get_primary_key_column(table2)
+            col1 = self._get_random_column(table1)
+            col2 = self._get_random_column(table2)
+            
+            # Materialization + Window functions + Join
+            queries.append(f"""
+                WITH 
+                t1_data AS MATERIALIZED (
+                    SELECT 
+                        {pk1}, 
+                        {col1},
+                        ROW_NUMBER() OVER(ORDER BY {pk1}) as row_num,
+                        RANK() OVER(ORDER BY {col1}) as rank_val
+                    FROM {table1}
+                    WHERE {col1} IS NOT NULL
+                ),
+                t2_data AS NOT MATERIALIZED (
+                    SELECT 
+                        {pk2}, 
+                        {col2},
+                        COUNT(*) OVER(PARTITION BY {col2}) as count_in_group
+                    FROM {table2}
+                    WHERE {col2} IS NOT NULL
+                )
+                SELECT 
+                    t1.{pk1},
+                    t1.{col1},
+                    t1.row_num,
+                    t2.{col2},
+                    t2.count_in_group
+                FROM t1_data t1
+                LEFT JOIN t2_data t2 ON t1.{pk1} = t2.{pk2}
+                WHERE t1.rank_val <= 10
+                ORDER BY t1.row_num;
+            """)
+            
+            # Materialization + Subqueries + CASE
+            queries.append(f"""
+                WITH 
+                base_data AS MATERIALIZED (
+                    SELECT * FROM {table1}
+                    WHERE {pk1} IN (
+                        SELECT {pk2} FROM {table2}
+                        WHERE {col2} IS NOT NULL
+                    )
+                ),
+                categories AS NOT MATERIALIZED (
+                    SELECT 
+                        {pk1},
+                        CASE 
+                            WHEN {col1} < 10 THEN 'Low'
+                            WHEN {col1} < 50 THEN 'Medium'
+                            ELSE 'High'
+                        END as category
+                    FROM base_data
+                )
+                SELECT 
+                    category,
+                    COUNT(*) as count,
+                    MIN({col1}) as min_value,
+                    MAX({col1}) as max_value,
+                    AVG({col1}) as avg_value
+                FROM categories
+                GROUP BY category
+                ORDER BY count DESC;
+            """)
+        
+        # Advanced nested materialization pattern
+        if self.table_names:
+            table = self._get_random_table()
+            pk = self._get_primary_key_column(table)
+            col = self._get_random_column(table)
+            
+            queries.append(f"""
+                WITH RECURSIVE
+                counter(n) AS NOT MATERIALIZED (
+                    SELECT 1
+                    UNION ALL
+                    SELECT n+1 FROM counter
+                    WHERE n < 5
+                ),
+                data(group_id, value) AS MATERIALIZED (
+                    SELECT 
+                        (({pk} - 1) % 5) + 1,
+                        {col}
+                    FROM {table}
+                    WHERE {col} IS NOT NULL
+                ),
+                grouped_data AS NOT MATERIALIZED (
+                    SELECT 
+                        c.n as group_id,
+                        (
+                            SELECT json_group_array(value)
+                            FROM data
+                            WHERE group_id = c.n
+                        ) as values_json
+                    FROM counter c
+                )
+                SELECT 
+                    group_id,
+                    json_array_length(values_json) as count,
+                    values_json
+                FROM grouped_data
+                WHERE json_array_length(values_json) > 0;
+            """)
+        
+        # --- Super complex materialized query ---
+        
+        if len(self.table_names) >= 3:
+            table1, table2, table3 = self._get_random_tables(3)
+            pk1 = self._get_primary_key_column(table1)
+            pk2 = self._get_primary_key_column(table2)
+            pk3 = self._get_primary_key_column(table3)
+            col1 = self._get_random_column(table1)
+            col2 = self._get_random_column(table2)
+            col3 = self._get_random_column(table3)
+            
+            queries.append(f"""
+                WITH 
+                t1_base AS MATERIALIZED (
+                    SELECT 
+                        {pk1}, 
+                        {col1},
+                        NTILE(4) OVER(ORDER BY {col1}) as quartile
+                    FROM {table1}
+                    WHERE {col1} IS NOT NULL
+                ),
+                t2_base AS NOT MATERIALIZED (
+                    SELECT 
+                        {pk2}, 
+                        {col2},
+                        CASE 
+                            WHEN {col2} < 10 THEN 'A'
+                            WHEN {col2} < 50 THEN 'B'
+                            ELSE 'C'
+                        END as category
+                    FROM {table2}
+                    WHERE {col2} IS NOT NULL
+                ),
+                t3_base AS MATERIALIZED (
+                    SELECT * FROM {table3}
+                    WHERE {col3} > (SELECT AVG({col3}) FROM {table3})
+                ),
+                quartile_stats AS NOT MATERIALIZED (
+                    SELECT 
+                        quartile,
+                        COUNT(*) as count,
+                        AVG({col1}) as avg_val
+                    FROM t1_base
+                    GROUP BY quartile
+                ),
+                category_stats AS MATERIALIZED (
+                    SELECT 
+                        category,
+                        COUNT(*) as count,
+                        SUM({col2}) as total
+                    FROM t2_base
+                    GROUP BY category
+                ),
+                joined_data AS NOT MATERIALIZED (
+                    SELECT 
+                        t1.{pk1},
+                        t1.quartile,
+                        q.avg_val as quartile_avg,
+                        t2.{pk2},
+                        t2.category,
+                        c.total as category_total,
+                        t3.{pk3}
+                    FROM t1_base t1
+                    JOIN quartile_stats q ON t1.quartile = q.quartile
+                    LEFT JOIN t2_base t2 ON t1.{pk1} = t2.{pk2}
+                    LEFT JOIN category_stats c ON t2.category = c.category
+                    LEFT JOIN t3_base t3 ON t2.{pk2} = t3.{pk3}
+                    WHERE (t1.{col1} > q.avg_val OR t2.category = 'A')
+                    AND (t3.{pk3} IS NULL OR t3.{col3} > 0)
+                )
+                SELECT 
+                    quartile,
+                    category,
+                    COUNT(*) as count,
+                    SUM(quartile_avg) as sum_quartile_avg,
+                    AVG(category_total) as avg_category_total,
+                    JSON_GROUP_ARRAY({pk1}) as ids_json
+                FROM joined_data
+                GROUP BY quartile, category
+                HAVING count > 1
+                ORDER BY quartile, category;
+            """)
+        
+        return queries
+    
+    def _generate_nested_queries(self) -> List[str]:
+        """
+        Generate complex nested queries with multiple levels (depth) of nesting.
+        Incorporates various SQL features like subqueries, CTEs, joins, aggregates
+        and window functions at different nesting depths.
+        """
+        queries = []
+        
+        # --- Simple Nested Subqueries (Level 2) ---
+        for _ in range(2):
+            table = self._get_random_table()
+            pk = self._get_primary_key_column(table)
+            
+            # Get two distinct columns
+            columns = self._get_random_columns(table, min_count=2, max_count=2)
+            col1 = columns[0]
+            col2 = columns[1]
+            
+            # Nested WHERE subquery
+            queries.append(f"""
+            SELECT {pk}, {col1} 
+            FROM {table}
+            WHERE {col2} IN (
+                SELECT {col2} 
+                FROM {table} 
+                WHERE {col1} IS NOT NULL AND {pk} < 100
+            );
+            """)
+            
+            # FROM clause subquery with filtering
+            queries.append(f"""
+            SELECT outer_query.{pk}, outer_query.row_num
+            FROM (
+                SELECT {pk}, {col1}, 
+                    ROW_NUMBER() OVER(ORDER BY {col1}) as row_num
+                FROM {table}
+                WHERE {col2} IS NOT NULL
+            ) outer_query
+            WHERE outer_query.row_num < 10;
+            """)
+        
+        # --- Double Nested Subqueries (Level 3) ---
+        for _ in range(2):
+            if len(self.table_names) >= 2:
+                table1, table2 = self._get_random_tables(2)
+                pk1 = self._get_primary_key_column(table1)
+                pk2 = self._get_primary_key_column(table2)
+                col1 = self._get_random_column(table1)
+                col2 = self._get_random_column(table2)
+                
+                # Level 3 nesting with multiple features
+                queries.append(f"""
+                SELECT t1.{pk1}, t1.{col1},
+                    (SELECT COUNT(*) 
+                    FROM {table2} t2 
+                    WHERE t2.{pk2} IN (
+                        SELECT t3.{pk2} 
+                        FROM {table2} t3 
+                        WHERE t3.{col2} > t1.{col1} AND t3.{pk2} < 50
+                    )
+                    ) as related_count
+                FROM {table1} t1
+                WHERE t1.{col1} IS NOT NULL;
+                """)
+                
+                # Level 3 nesting with different features
+                queries.append(f"""
+                SELECT * FROM (
+                    SELECT t1.{pk1}, t1.{col1}, 
+                        (SELECT AVG(t3.{col2}) 
+                            FROM {table2} t3 
+                            WHERE t3.{pk2} < t1.{pk1}) as avg_value
+                    FROM {table1} t1
+                    JOIN (
+                        SELECT * FROM {table2}
+                        WHERE {col2} IS NOT NULL
+                    ) t2 ON t1.{pk1} = t2.{pk2}
+                ) complex_data
+                WHERE avg_value IS NOT NULL;
+                """)
+        
+        # --- Complex WITH Clause and Nested Subqueries (Level 3+) ---
+        if len(self.table_names) >= 2:
+            table1, table2 = self._get_random_tables(2)
+            pk1 = self._get_primary_key_column(table1)
+            pk2 = self._get_primary_key_column(table2)
+            col1 = self._get_random_column(table1)
+            numeric_cols = [col for col in self.schema_info[table1]["column_names"] 
+                            if self._is_numeric_column(table1, col)]
+            
+            if numeric_cols:
+                num_col = random.choice(numeric_cols)
+                
+                # WITH clauses + nesting
+                queries.append(f"""
+                WITH 
+                base_data AS (
+                    SELECT {pk1}, {col1}, {num_col}
+                    FROM {table1}
+                    WHERE {num_col} IS NOT NULL
+                ),
+                aggregated AS (
+                    SELECT {col1}, 
+                        AVG({num_col}) as avg_val,
+                        COUNT(*) as count
+                    FROM base_data
+                    GROUP BY {col1}
+                    HAVING COUNT(*) > 1
+                )
+                SELECT a.{col1}, a.avg_val, a.count,
+                    (SELECT COUNT(*) 
+                    FROM {table2} t 
+                    WHERE t.{pk2} IN (
+                        SELECT b.{pk1} 
+                        FROM base_data b 
+                        WHERE b.{col1} = a.{col1}
+                    )
+                    ) as related_items
+                FROM aggregated a
+                WHERE a.avg_val > (
+                    SELECT AVG(avg_val) FROM aggregated
+                )
+                ORDER BY a.avg_val DESC;
+                """)
+        
+        # --- Super Complex Nested Queries (Level 4+) ---
+        if len(self.table_names) >= 3:
+            table1, table2, table3 = self._get_random_tables(3)
+            pk1 = self._get_primary_key_column(table1)
+            pk2 = self._get_primary_key_column(table2)
+            pk3 = self._get_primary_key_column(table3)
+            
+            # Get columns for each table
+            col1 = self._get_random_column(table1)
+            col2 = self._get_random_column(table2)
+            col3 = self._get_random_column(table3)
+            
+            # Deeply nested with multiple features
+            queries.append(f"""
+            WITH RECURSIVE 
+            counter(n) AS (
+                SELECT 1
+                UNION ALL
+                SELECT n+1 FROM counter WHERE n < 5
+            ),
+            filtered_t1 AS (
+                SELECT {pk1}, {col1},
+                    RANK() OVER(ORDER BY {col1}) as rank_val
+                FROM {table1}
+                WHERE {col1} IS NOT NULL
+            )
+            SELECT c.n, f.{pk1}, f.{col1}, 
+                (SELECT COUNT(*) 
+                    FROM {table2} t2 
+                    WHERE t2.{pk2} IN (
+                        SELECT t3.{pk3} 
+                        FROM {table3} t3 
+                        LEFT JOIN (
+                            SELECT {pk2}, {col2} 
+                            FROM {table2}
+                            WHERE {col2} > f.{col1}
+                        ) subq ON t3.{pk3} = subq.{pk2}
+                        WHERE t3.{col3} IS NOT NULL
+                        GROUP BY t3.{pk3}
+                        HAVING COUNT(*) > c.n
+                    )
+                ) as nested_count
+            FROM counter c
+            CROSS JOIN filtered_t1 f
+            WHERE f.rank_val <= 3
+            ORDER BY c.n, f.rank_val;
+            """)
+            
+            # Complex nested window functions and aggregates
+            queries.append(f"""
+            WITH 
+            t1_stats AS (
+                SELECT {col1}, 
+                    COUNT(*) as count,
+                    AVG({pk1}) as avg_pk
+                FROM {table1}
+                GROUP BY {col1}
+            ),
+            t2_derived AS (
+                SELECT {pk2}, {col2},
+                    CASE 
+                        WHEN {col2} IS NULL THEN 'Unknown'
+                        WHEN {col2} < 50 THEN 'Low'
+                        ELSE 'High'
+                    END as category
+                FROM {table2}
+            )
+            SELECT main.*, 
+                (SELECT AVG(count) FROM t1_stats) as overall_avg,
+                (
+                    SELECT COUNT(*) FROM (
+                        SELECT t3.{pk3}, 
+                                LAG(t3.{col3}) OVER(ORDER BY t3.{pk3}) as prev_val,
+                                LEAD(t3.{col3}) OVER(ORDER BY t3.{pk3}) as next_val
+                        FROM {table3} t3
+                        WHERE t3.{pk3} IN (
+                            SELECT td.{pk2} FROM t2_derived td
+                            WHERE td.category = main.category
+                            UNION
+                            SELECT ts.avg_pk FROM t1_stats ts
+                            WHERE ts.{col1} = main.{col1}
+                        )
+                    ) complex_window
+                    WHERE complex_window.prev_val IS NOT NULL
+                    OR complex_window.next_val IS NOT NULL
+                ) as window_matches
+            FROM (
+                SELECT ts.{col1}, td.category,
+                    ts.count, ts.avg_pk,
+                    DENSE_RANK() OVER(PARTITION BY td.category ORDER BY ts.count DESC) as rank_in_category
+                FROM t1_stats ts
+                CROSS JOIN (
+                    SELECT DISTINCT category FROM t2_derived
+                ) td
+            ) main
+            WHERE main.rank_in_category <= 2
+            ORDER BY main.category, main.rank_in_category;
+            """)
+        
+        # --- CTE with Deep Nesting and Multiple Features ---
+        if len(self.table_names) >= 2:
+            table1, table2 = self._get_random_tables(2)
+            pk1 = self._get_primary_key_column(table1)
+            pk2 = self._get_primary_key_column(table2)
+            
+            # Get distinct columns for table1
+            t1_columns = self._get_random_columns(table1, min_count=2, max_count=2)
+            col1a = t1_columns[0]
+            col1b = t1_columns[1]
+            
+            col2 = self._get_random_column(table2)
+            
+            # CTE with subquery and window function combinations
+            queries.append(f"""
+            WITH 
+            base_data AS (
+                SELECT {pk1}, {col1a}, {col1b},
+                    ROW_NUMBER() OVER(PARTITION BY {col1a} ORDER BY {pk1}) as row_num,
+                    NTILE(4) OVER(ORDER BY {col1b}) as quartile
+                FROM {table1}
+                WHERE {col1a} IS NOT NULL AND {col1b} IS NOT NULL
+            ),
+            quartile_stats AS (
+                SELECT quartile, 
+                    COUNT(*) as count,
+                    AVG({col1b}) as avg_value
+                FROM base_data
+                GROUP BY quartile
+            )
+            SELECT 
+                bd.{pk1},
+                bd.{col1a},
+                bd.{col1b},
+                bd.quartile,
+                qs.avg_value as quartile_avg,
+                (bd.{col1b} - qs.avg_value) as diff_from_avg,
+                (
+                    SELECT COUNT(*) 
+                    FROM {table2} t2
+                    WHERE t2.{pk2} IN (
+                        SELECT t2_inner.{pk2}
+                        FROM {table2} t2_inner
+                        WHERE t2_inner.{col2} BETWEEN bd.{col1b} - 10 AND bd.{col1b} + 10
+                    )
+                    AND t2.{col2} IS NOT NULL
+                ) as related_count,
+                CASE 
+                    WHEN bd.row_num = 1 THEN 'First'
+                    WHEN bd.row_num <= 3 THEN 'Top 3'
+                    ELSE 'Other'
+                END as position_group
+            FROM base_data bd
+            JOIN quartile_stats qs ON bd.quartile = qs.quartile
+            WHERE bd.row_num <= (
+                SELECT MAX(row_num)/2 FROM base_data WHERE quartile = bd.quartile
+            )
+            ORDER BY bd.quartile, bd.row_num;
+            """)
+        
+        # --- Combine Multiple Techniques in One Query ---
+        table = self._get_random_table()
+        pk = self._get_primary_key_column(table)
+        
+        # Get two distinct columns
+        columns = self._get_random_columns(table, min_count=2, max_count=2)
+        col1 = columns[0]
+        col2 = columns[1]
+        
+        # Nested UNION, window functions, aggregates, and filtering
+        queries.append(f"""
+        WITH 
+        partitioned_data AS (
+            SELECT {pk}, {col1}, {col2},
+                NTILE(3) OVER(ORDER BY {col1}) as segment
+            FROM {table}
+            WHERE {col1} IS NOT NULL
+        ),
+        segment_stats AS (
+            SELECT segment, 
+                COUNT(*) as count,
+                MIN({col1}) as min_val,
+                MAX({col1}) as max_val
+            FROM partitioned_data
+            GROUP BY segment
+        )
+        SELECT 
+            'Segment ' || pd.segment as group_name,
+            pd.{pk},
+            pd.{col1},
+            pd.{col2},
+            ss.min_val,
+            ss.max_val,
+            (
+                SELECT COUNT(*)
+                FROM (
+                    SELECT {pk} FROM {table} WHERE {col1} < pd.{col1}
+                    UNION ALL
+                    SELECT {pk} FROM {table} WHERE {col2} > pd.{col2}
+                )
+            ) as combined_count
+        FROM partitioned_data pd
+        JOIN segment_stats ss ON pd.segment = ss.segment
+        WHERE pd.{col1} > (
+            SELECT AVG({col1})
+            FROM partitioned_data
+            WHERE segment = pd.segment
+        )
+        ORDER BY pd.segment, pd.{col1} DESC;
+        """)
         
         return queries
     
