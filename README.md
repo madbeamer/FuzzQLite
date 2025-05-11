@@ -93,6 +93,7 @@ FuzzQLite uses a combination of strategies to find bugs in SQLite. The big pictu
 4. **Coverage Tracking**: Monitors source code coverage to guide fuzzing towards more promising areas. If a query increases code coverage, it's added to the population for future mutations.
 5. **Logic Bug Detection**: Using differential testing, it compares the behavior of different SQLite versions to identify logic bugs
 6. **Crash Detection**: Monitors for crashes and hangs during query execution
+7. **Reference Error Detection**: Detects if the reference SQLite version crashes or hangs during differential testing
 
 When a bug is detected, a bug reproducer is automatically generated and saved to `bug_reproducers/`.
 
@@ -104,14 +105,21 @@ Each bug reproducer is stored in its own directory with a standardized structure
 bug_reproducers/
 └── [SQLite version]/
     ├── crashes/
-    │   └── crash_[version]_[timestamp]/
-    │       ├── README.md                   # Description of the bug
-    │       ├── original_test.sql           # Original SQL query that triggered the bug
-    │       ├── reduced_test.sql            # Minimized version that still triggers the bug
-    │       ├── test.db                     # Database file used when the bug was triggered
-    │       └── version.txt                 # SQLite version information
-    └── logic_bugs/
-        └── logic_bug_[version]_[timestamp]/
+    │   └── crash_[SQLite version]_[timestamp]/
+    │       ├── README.md                       # Description of the bug
+    │       ├── original_test.sql               # Original SQL query that triggered the bug
+    │       ├── reduced_test.sql                # Minimized SQL query that still triggers the bug
+    │       ├── test.db                         # Database file before the query was executed
+    │       └── version.txt                     # SQLite version where the bug was found
+    ├── logic_bugs/
+    │   └── logic_bug_[SQLite version]_[timestamp]/
+    │       ├── README.md
+    │       ├── original_test.sql
+    │       ├── reduced_test.sql
+    │       ├── test.db
+    │       └── version.txt
+    └── reference_errors/
+        └── reference_error_[SQLite version]_[timestamp]/
             ├── README.md
             ├── original_test.sql
             ├── reduced_test.sql
