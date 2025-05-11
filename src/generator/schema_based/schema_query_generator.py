@@ -249,6 +249,7 @@ class SchemaQueryGenerator:
             queries.append(f"SELECT {table1}.{pk1}, {table2}.{pk2} FROM {table1} JOIN {table2} ON {table1}.{pk1} = {table2}.{pk2};")
             
             # LEFT JOIN
+            queries.append(f"SELECT * FROM {table1} LEFT JOIN {table2};")
             queries.append(f"SELECT {table1}.{pk1}, {table2}.{pk2} FROM {table1} LEFT JOIN {table2} ON {table1}.{pk1} = {table2}.{pk2};")
             
             # Complex JOIN with table aliases
@@ -406,6 +407,7 @@ class SchemaQueryGenerator:
             col1 = self._get_random_column(table1)
             col2 = self._get_random_column(table2)
             col3 = self._get_random_column(table3)
+            view = self._get_random_view()
             
             # Extremely complex nested JOIN structure
             queries.append(f"""
@@ -453,6 +455,10 @@ class SchemaQueryGenerator:
                         WHERE {col2} = t1.{col1}
                     )
                 );
+            """)
+
+            queries.append(f"""
+                SELECT * FROM {table1} JOIN {view} ON {table1}.{col1} RIGHT JOIN {table2} ON {table1}.{col1};
             """)
         
         return queries
@@ -1085,6 +1091,10 @@ class SchemaQueryGenerator:
         queries.append(f"SELECT CAST({col} AS INTEGER) FROM {table};")
         queries.append(f"SELECT CAST({col} AS REAL) FROM {table};")
         
+        queries.append(f"SELECT CAST(1 AS TEXT) FROM {table};")
+        queries.append(f"SELECT CAST(5.0 AS INTEGER) FROM {table};")
+        queries.append(f"SELECT CAST(20 AS REAL) FROM {table};")
+
         return queries
     
     def _generate_window_function_queries(self) -> List[str]:

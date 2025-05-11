@@ -13,10 +13,9 @@ class ImprovedMutator(Mutator):
     """
     
     def __init__(self, schema_path: str = "databases/schema_info.json"):
-        """Initialize the SQL mutator."""
         super().__init__()
 
-        self.weights = [0.2, 0.1, 0.1, 0.15, 0.25, 0.2]
+        self.weights = [0.2, 0.1, 0.1, 0.1, 0.2, 0.2, 0.1]
         
         self.sql_keywords = [
             "SELECT", "FROM", "WHERE", "GROUP BY", "HAVING", "ORDER BY",
@@ -34,7 +33,7 @@ class ImprovedMutator(Mutator):
         
         self.sql_functions = [
             "COUNT", "SUM", "AVG", "MIN", "MAX", "ABS", "COALESCE",
-            "LENGTH", "LOWER", "UPPER", "SUBSTR", "REPLACE", "HEX", "TYPEOF" # remove "ROUND"
+            "LENGTH", "LOWER", "UPPER", "SUBSTR", "REPLACE", "HEX", "TYPEOF"
         ]
 
         # Load table names from schema JSON file
@@ -73,15 +72,6 @@ class ImprovedMutator(Mutator):
             return []
 
     def mutate(self, inp: Tuple[str, str]) -> Tuple[str, str]:
-        """
-        Apply SQL-specific mutation to the input.
-        
-        Args:
-            inp: (sql_query, db_path) tuple
-            
-        Returns:
-            The mutated input data (sql_query, db_path)
-        """
         sql_query, db_path = inp
 
         self._reset()
@@ -90,8 +80,7 @@ class ImprovedMutator(Mutator):
         return (mutated_sql_query, db_path)
     
     def _reset(self) -> None:
-        """Reset the mutator state."""
-        self.weights = [0.2, 0.1, 0.1, 0.15, 0.25, 0.2]
+        self.weights = [0.2, 0.1, 0.1, 0.1, 0.2, 0.2, 0.1]
     
     def _find_strategy(self, sql_query: str, probabilities: list) -> str:
         strategies = [
@@ -100,7 +89,8 @@ class ImprovedMutator(Mutator):
             self._modify_operator,
             self._insert_function,
             self._modify_strings,
-            self._nest_select
+            self._nest_select, 
+            self._modify_bools
         ]
         if sum(self.weights) == 0:
             pragma = random.choice(self.pragma_statements)
@@ -109,18 +99,15 @@ class ImprovedMutator(Mutator):
         return strategy(sql_query)
     
     def _change_numeric_value(self, input_data: str) -> str:
-        """Find numeric values and change them."""
-        # Find numbers in the SQL
         numbers = re.findall(r'\b\d+\b', input_data)
         if not numbers:
             self.weights[0] = 0.0
             return self._find_strategy(input_data, self.weights)
             
-        # Pick a random number to change
         num_to_change = random.choice(numbers)
         
-        # Choose a modification strategy
         strategies = [
+            lambda x: f"json({str(x)})",
             lambda x: str(int(x) + 1),    # Increment
             lambda x: str(int(x) - 1),    # Decrement
             lambda x: str(-int(x)),       # Negate
@@ -128,20 +115,18 @@ class ImprovedMutator(Mutator):
             lambda x: str(-2**31),        # MIN_INT
             lambda x: "0",                # Zero
             lambda x: "-0",               # Negative Zero
-            lambda x: "NULL"
+            lambda x: "NULL",
+            lambda x: f"x\'{str(x)}\'",  # Hexadecimal
         ]
         
         new_num = random.choice(strategies)(num_to_change)
         
-        # Replace just one occurrence (not all)
         parts = input_data.split(num_to_change, 1)
         return parts[0] + new_num + parts[1]
 
     def _insert_keyword(self, input_data: str) -> str:
-        """Insert or replace a SQL keyword."""
         keyword = random.choice(self.sql_keywords)
         
-        # Choose between inserting and replacing
         if random.choice([True, False]) and any(k in input_data.upper() for k in self.sql_keywords):
             found_keywords = []
             for existing_keyword in self.sql_keywords:
@@ -205,7 +190,6 @@ class ImprovedMutator(Mutator):
 
         while True:
             new_op = random.choice(self.sql_operators)
-            # Avoid replacing with incompatible operators
             if (new_op in ["BETWEEN", "NOT BETWEEN"] and 
                 op_to_replace not in ["BETWEEN", "NOT BETWEEN"]):
                 continue
@@ -215,39 +199,30 @@ class ImprovedMutator(Mutator):
         return (input_data[:random_pos] + new_op + input_data[random_pos + len(op_to_replace):])
     
     def _insert_function(self, input_data: str) -> str:
-        """Insert a SQL function around a column or expression."""
-        # Look for column references but avoid SQL keywords
-        # Updated regex to be more specific to column names
         match = re.search(r'\b([a-zA-Z_][a-zA-Z0-9_]*\.[a-zA-Z_][a-zA-Z0-9_]*|[a-zA-Z_][a-zA-Z0-9_]*)\b', input_data)
         if match:
             column = match.group(0)
-            # Check if it's not a SQL keyword
             if column.upper() not in [k.upper() for k in self.sql_keywords]:
                 func = random.choice(self.sql_functions)
                 rnd = random.randint(0, 1)
                 if rnd == 0:
-                    # Replace column with func(NULL)
                     return input_data.replace(column, f"{func}(NULL)", 1)
                 else:
-                    # Replace column with func(column) and add a space
                     return input_data.replace(column, f"{func}({column}) ", 1)
 
         self.weights[3] = 0.0
         return self._find_strategy(input_data, self.weights)
     
     def _modify_strings(self, input_data: str) -> str:
-        """Modify string literals in the SQL query."""
-        # Look for string literals
         string_literals = re.findall(r'\'[^\']*\'|"[^"]*"', input_data)
         if not string_literals:
             self.weights[4] = 0.0
             return self._find_strategy(input_data, self.weights)
         
-        # Pick a random string literal to modify
         str_to_modify = random.choice(string_literals)
         
-        # Choose a modification strategy
         strategies = [
+            lambda x: x[::-1],  # Reverse the string
             lambda x: "''",  # Empty string
             lambda x: """""",
             lambda x: "NULL",  # NULL value
@@ -259,14 +234,12 @@ class ImprovedMutator(Mutator):
             lambda x: "%_",
             lambda x: x + "?",
             lambda x: "?*",
-            lambda x: ":",
             lambda x: "@$",
             lambda x: ";",
         ]
         
         new_str = random.choice(strategies)(str_to_modify)
         
-        # Replace just one occurrence (not all)
         parts = input_data.split(str_to_modify, 1)
         return parts[0] + "'" + new_str + "'" + parts[1]
 
@@ -294,13 +267,35 @@ class ImprovedMutator(Mutator):
             after_from = input_data[rand_pos + 4:].strip()
             first_word_match = re.search(r'\s+', after_from)
             if first_word_match:
-                # Found a space, which means there's more than one word
                 first_word_end = first_word_match.start()
                 return input_data[:rand_pos + 4] + " " + subquery + after_from[first_word_end:]
             else:
-                # Only one word after FROM, replace it entirely
                 return input_data[:rand_pos + 4] + " " + subquery
         else:
             self.weights[5] = 0.0
             return self._find_strategy(input_data, self.weights)
         
+    def _modify_bools(self, input_data: str) -> str:
+        bool_literals = re.findall(r'\b(TRUE|FALSE)\b', input_data, re.IGNORECASE)
+        if not bool_literals:
+            self.weights[6] = 0.0
+            return self._find_strategy(input_data, self.weights)
+        
+        # Pick a random boolean literal to modify
+        bool_to_modify = random.choice(bool_literals)
+        
+        # Choose a modification strategy
+        strategies = [
+            lambda x: "TRUE" if x.upper() == "FALSE" else "FALSE",
+            lambda x: "NULL",
+            lambda x: "1",
+            lambda x: "0",
+            lambda x: f"json{{TRUE}}",
+            lambda x: f"json{{FALSE}}",
+        ]
+        
+        new_bool = random.choice(strategies)(bool_to_modify)
+        
+        # Replace just one occurrence (not all)
+        parts = input_data.split(bool_to_modify, 1)
+        return parts[0] + new_bool + parts[1]
