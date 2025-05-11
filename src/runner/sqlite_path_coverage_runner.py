@@ -367,7 +367,7 @@ class SQLitePathCoverageRunner:
                 f"[bold]Target:[/] {', '.join(target_versions)}\n"
                 f"[bold]Reference:[/] {ref_version}\n\n"
                 f"[bold]Progress:[/] {self.current_trial}/{self.total_trials} ({self.current_trial/self.total_trials*100:.1f}%)\n"
-                f"[bold]Coverage:[/] {f'{self.coverage:.2f}%' if isinstance(self.coverage, (int, float)) else self.coverage}\n"
+                f"[bold]Stmt Coverage:[/] {f'{self.coverage:.2f}%' if isinstance(self.coverage, (int, float)) else self.coverage}\n"
                 f"[bold]Grammar Coverage:[/] {f'{self.grammar_coverage:.2f}%' if isinstance(self.grammar_coverage, (int, float)) else self.grammar_coverage}\n"
                 f"[bold]Time:[/] {self._format_time(elapsed)}\n"
                 f"[bold]Speed:[/] {trials_per_sec:.2f}/s\n"
