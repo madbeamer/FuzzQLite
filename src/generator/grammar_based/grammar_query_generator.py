@@ -3,8 +3,8 @@ import re
 from IPython.display import display
 from typing import Union, Set, List, Callable, Optional
 
-from utils.grammar import Grammar, Expansion, is_valid_grammar, is_nonterminal, exp_string, RE_NONTERMINAL, nonterminals, START_SYMBOL
-from utils.derivation_tree import DerivationTree, all_terminals, display_tree
+from generator.grammar_based.utils.grammar import Grammar, Expansion, is_valid_grammar, is_nonterminal, exp_string, RE_NONTERMINAL, nonterminals, START_SYMBOL
+from generator.grammar_based.utils.derivation_tree import DerivationTree, all_terminals, display_tree
 
 def expansion_to_children(expansion: Expansion) -> List[DerivationTree]:
     # print("Converting " + repr(expansion))
@@ -22,7 +22,7 @@ def expansion_to_children(expansion: Expansion) -> List[DerivationTree]:
             for s in strings if len(s) > 0]
 
 
-class GrammarFuzzer:
+class GrammarQueryGenerator:
     """Produce strings from grammars efficiently, using derivation trees."""
 
     def __init__(self,

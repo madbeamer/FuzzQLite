@@ -3,7 +3,7 @@ import datetime
 import shutil
 from typing import Dict, Any
 
-from runner.outcome import Outcome
+from runner.utils.outcome import Outcome
 
 class BugTracker:
     """
@@ -118,19 +118,6 @@ class BugTracker:
         
         return bug_dir
     
-    # Process stdout and stderr to limit to 50 lines max
-    def limit_output(output, max_lines=50):
-        if not output:
-            return "No output available"
-        
-        lines = output.splitlines()
-        if len(lines) <= max_lines:
-            return output
-        
-        limited_lines = lines[:max_lines]
-        limited_output = "\n".join(limited_lines)
-        return limited_output + f"\n\n[Output truncated to {max_lines} lines.]"
-    
     def _create_readme(self,
                     bug_dir: str,
                     bug_type: str,
@@ -153,10 +140,23 @@ class BugTracker:
             reference_result: Result from the reference SQLite (for logic bugs or reference errors)
         """
 
-        target_stdout = self.limit_output(target_result.get('stdout', ''))
-        target_stderr = self.limit_output(target_result.get('stderr', ''))
-        reference_stdout = self.limit_output(reference_result.get('stdout', ''))
-        reference_stderr = self.limit_output(reference_result.get('stderr', ''))
+        # Process stdout and stderr to limit to 50 lines max
+        def limit_output(output, max_lines=50):
+            if not output:
+                return "No output available"
+            
+            lines = output.splitlines()
+            if len(lines) <= max_lines:
+                return output
+            
+            limited_lines = lines[:max_lines]
+            limited_output = "\n".join(limited_lines)
+            return limited_output + f"\n\n[Output truncated to {max_lines} lines.]"
+
+        target_stdout = limit_output(target_result.get('stdout', ''))
+        target_stderr = limit_output(target_result.get('stderr', ''))
+        reference_stdout = limit_output(reference_result.get('stdout', ''))
+        reference_stderr = limit_output(reference_result.get('stderr', ''))
 
         with open(os.path.join(bug_dir, "README.md"), "w") as f:
             # Write header

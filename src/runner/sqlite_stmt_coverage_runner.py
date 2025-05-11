@@ -5,7 +5,7 @@ import os
 import time
 import datetime
 import re
-from typing import List, Tuple, Dict, Any, Set
+from typing import List, Tuple, Dict, Any
 
 from rich.console import Console
 from rich.table import Table
@@ -14,16 +14,16 @@ from rich.layout import Layout
 from rich.panel import Panel
 import rich.box
 
-from runner.outcome import Outcome
-from runner.run_result import RunResult
+from runner.utils.outcome import Outcome
+from runner.utils.run_result import RunResult
+from runner.utils.coverage import read_gcov_coverage_percentage
 
 from utils.bug_tracker import BugTracker
-from utils.coverage import read_gcov_coverage
 
 
-class CountingSQLiteCoverageRunner:
+class SQLiteStmtCoverageRunner:
     """
-    Runner for SQLite coverage testing.
+    Runner for SQLite measuring statement coverage.
     """
     
     def __init__(self, 
@@ -63,6 +63,7 @@ class CountingSQLiteCoverageRunner:
         self.current_trial = 0
         self.run_results = [] # Store the latest run results for display
         self.coverage = 0 # Store coverage information for display
+        self.grammar_coverage = 0 # Store grammar coverage information for display
         self.live_display = None
         
         # Define outcome styling
@@ -73,27 +74,6 @@ class CountingSQLiteCoverageRunner:
             Outcome.REFERENCE_ERROR: "yellow",
             Outcome.INVALID_QUERY: "blue",
         }
-    
-    def _read_coverage_percentage(self) -> float:
-        """
-        Read the coverage percentage from a file.
-            
-        Returns:
-            Coverage percentage
-        """
-        # Run gcov command on the file at cwd=/home/test/sqlite
-        cmd = ["gcov", "-o", "sqlite3-sqlite3", "sqlite3.c"]
-        result = subprocess.run(cmd, stdout=subprocess.PIPE, text=True, cwd="/home/test/sqlite")
-        
-        # Extract the coverage percentage from the output
-        output = result.stdout
-        match = re.search(r"Lines executed:(\d+\.\d+)% of \d+", output)
-        
-        if match:
-            coverage_percentage = float(match.group(1))
-            return coverage_percentage
-        else:
-            return -1
         
     def _restore_database(self, db_path: str) -> bool:
         """
@@ -162,68 +142,10 @@ class CountingSQLiteCoverageRunner:
             result['stderr'] = str(e)
             
         return result
-
-    # Run SQLite using a temporary file for the query (slower) (above: using stdin + query as a string)
-    # def _run_sqlite(self, sqlite_path: str, sql_query: str, db_path: str) -> Dict[str, Any]:
-    #     """
-    #     Run a specific SQLite version with the given input.
-        
-    #     Args:
-    #         sqlite_path: Path to the SQLite executable
-    #         sql_query: SQL query
-    #         db_path: Path to the database file
-            
-    #     Returns:
-    #         A dictionary with execution result information
-    #     """
-    #     # Create a temporary file for the SQL input
-    #     with tempfile.NamedTemporaryFile(mode='w+', suffix='.sql', delete=False) as temp_file:
-    #         modified_query = "BEGIN TRANSACTION;\n" + sql_query + "\n;\nROLLBACK;"
-    #         temp_file.write(modified_query)
-    #         temp_file.flush()
-            
-    #         result = {
-    #             'returncode': None,
-    #             'stdout': None,
-    #             'stderr': None,
-    #             'coverage': None,
-    #         }
-            
-    #         try:
-    #             # Run SQLite with the input file
-    #             cmd = [sqlite_path, db_path]
-    #             with open(temp_file.name, 'r') as sql_file:
-    #                 process = subprocess.run(
-    #                     cmd,
-    #                     stdin=sql_file,
-    #                     capture_output=True,
-    #                     text=True,
-    #                     timeout=self.timeout
-    #                 )
-                
-    #             result['returncode'] = process.returncode
-    #             result['stdout'] = process.stdout
-    #             result['stderr'] = process.stderr
-                    
-    #         except subprocess.TimeoutExpired as e:
-    #             result['returncode'] = -1
-    #             result['stdout'] = e.stdout
-    #             result['stderr'] = e.stderr
-    #         except Exception as e:
-    #             result['returncode'] = -1
-    #             result['stderr'] = str(e)
-    #         finally:
-    #             # Clean up the temporary file
-    #             try:
-    #                 os.unlink(temp_file.name)
-    #             except:
-    #                 pass  # Ignore cleanup errors
-                
-    #         return result
     
     def _normalize_output(self, output: str, query: str) -> str:
         """
-        Normalize output to handle floating point differences and other variations.
+        Normalize output to handle floating point differences, whitespace variations, and other differences.
         
         Args:
             output: Raw SQLite output
@@ -232,7 +154,7 @@ class CountingSQLiteCoverageRunner:
         Returns:
             Normalized output
         """
-        lines = output.strip().split('\n')
+        lines = output.split('\n')
         
         # If no content at all, return empty string
         if not lines:
@@ -241,26 +163,29 @@ class CountingSQLiteCoverageRunner:
         normalized_lines = []
         
         for line in lines:
-            # Skip completely empty lines that aren't part of the actual data
+            # Handle completely empty lines as separate case
             if not line.strip():
+                normalized_lines.append("")
                 continue
-            
+                
+            # Split by pipe and handle each part
             parts = line.split('|')
             normalized_parts = []
             
             for part in parts:
+                # Strip extra whitespace from each part
                 part_stripped = part.strip()
                 
-                # Only normalize if it looks like a float (contains a decimal point)
-                if part_stripped and '.' in part_stripped:
-                    try:
-                        float_val = float(part_stripped)
-                        normalized_parts.append(f"{float_val:.8f}")
-                    except ValueError:
-                        normalized_parts.append(part)
-                else:
-                    normalized_parts.append(part)
+                try:
+                    # Check if it's a number (float or int)
+                    float_val = float(part_stripped)
+                    
+                    # Only keep 8 decimal places for floats
+                    normalized_parts.append(f"{float_val:.8f}")
+                except ValueError:
+                    normalized_parts.append(part_stripped)
             
+            # Join parts with a consistent separator
             normalized_line = '|'.join(normalized_parts)
             normalized_lines.append(normalized_line)
         
@@ -270,7 +195,7 @@ class CountingSQLiteCoverageRunner:
         
         return '\n'.join(normalized_lines)
     
-    def run(self, inp: Tuple[str, str]) -> Dict[str, RunResult]: # Tuple[Dict[str, RunResult], Set[Location]]
+    def run(self, inp: Tuple[str, str]) -> Dict[str, RunResult]:
         """
         Run SQLite with the given input and compare with reference version.
         Restore database only if a true crash is detected (not for invalid queries).
@@ -323,7 +248,7 @@ class CountingSQLiteCoverageRunner:
                 # Both succeeded, compare outputs
                 normalized_output_target = self._normalize_output(target_result['stdout'], sql_query)
                 normalized_output_reference = self._normalize_output(reference_result['stdout'], sql_query)
-
+                
                 if normalized_output_target != normalized_output_reference:
                     outcome = Outcome.LOGIC_BUG
                 else:
@@ -345,16 +270,13 @@ class CountingSQLiteCoverageRunner:
 
         # Add coverage information to all RunResult.target_result
         # Note: We need to do this after all runs to make sure that the gcov files were updated (/home/test/sqlite/sqlite-3.26.0 needs to be run)
-        coverage_percentage = self._read_coverage_percentage()
+        coverage = read_gcov_coverage_percentage()
         for target_sqlite_path in self.target_sqlite_paths:
             run_result = run_results[target_sqlite_path]
-            run_result.target_result['coverage'] = coverage_percentage
-
-        # Note: This must be after _read_coverage_percentage is called so .gcov files are updated
-        coverage = read_gcov_coverage(c_file="/home/test/sqlite/sqlite3.c")
-            
-        return run_results, coverage
-        # return run_results
+            run_result.target_result['coverage'] = coverage
+                    
+        # return run_results, coverage
+        return run_results
     
     def start_fuzzing_session(self):
         """Start a new fuzzing session."""
@@ -410,13 +332,13 @@ class CountingSQLiteCoverageRunner:
         
         # Split the main content into two sections - top section with fixed sizing and bottom section that can collapse
         layout["content"].split(
-            Layout(name="fixed_panels", ratio=1, minimum_size=12),  # Fixed minimum size for stats/results
+            Layout(name="fixed_panels", ratio=1, minimum_size=13),  # Fixed minimum size for stats/results
             Layout(name="trials", ratio=2, minimum_size=3)  # Collapsible section with minimum height
         )
         
         # Split the fixed panels section into stats and results
         layout["content"]["fixed_panels"].split_row(
-            Layout(name="stats", ratio=1, minimum_size=25),  # Fixed minimum width for stats
+            Layout(name="stats", ratio=1, minimum_size=45),  # Fixed minimum width for stats
             Layout(name="results", ratio=2, minimum_size=50)  # Fixed minimum width for results
         )
         
@@ -442,7 +364,8 @@ class CountingSQLiteCoverageRunner:
                 f"[bold]Target:[/] {', '.join(target_versions)}\n"
                 f"[bold]Reference:[/] {ref_version}\n\n"
                 f"[bold]Progress:[/] {self.current_trial}/{self.total_trials} ({self.current_trial/self.total_trials*100:.1f}%)\n"
-                f"[bold]Coverage:[/] {f'{self.coverage:.2f}%' if isinstance(self.coverage, (int, float)) else self.coverage}\n"
+                f"[bold]Stmt Coverage:[/] {f'{self.coverage:.2f}%' if isinstance(self.coverage, (int, float)) else self.coverage}\n"
+                f"[bold]Grammar Coverage:[/] {f'{self.grammar_coverage:.2f}%' if isinstance(self.grammar_coverage, (int, float)) else self.grammar_coverage}\n"
                 f"[bold]Time:[/] {self._format_time(elapsed)}\n"
                 f"[bold]Speed:[/] {trials_per_sec:.2f}/s\n"
                 f"[bold]ETA:[/] {self._estimate_completion()}"
@@ -540,20 +463,22 @@ class CountingSQLiteCoverageRunner:
         
         return layout
     
-    def record_results(self, run_results: Dict[str, RunResult], bug_tracker: BugTracker) -> None:
+    def record_results(self, run_results: Dict[str, RunResult], bug_tracker: BugTracker, grammar_coverage: float) -> None:
         """
         Record RunResults and update the display accordingly.
         
         Args:
             run_results: Dictionary of RunResults keyed by target SQLite path
             bug_tracker: Bug tracker for saving reproducers
+            grammar_coverage: Coverage percentage from the grammar-based query generator
         """
         self.current_trial += 1
         
         values_list = list(run_results.values())
         coverage = values_list[0].target_result['coverage'] if values_list else None
         self.coverage = coverage if coverage is not None else "N/A"
-        
+        self.grammar_coverage = "N/A [Still seeding...]" if grammar_coverage == 0.0 else grammar_coverage if grammar_coverage is not None else "N/A" 
+
         # Process each target's result
         for target_path, run_result in run_results.items():
             # Update stats for this target

@@ -1,6 +1,5 @@
 import random
 import re
-import string
 from typing import Tuple
 
 from mutator.mutator import Mutator

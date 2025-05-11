@@ -1,10 +1,9 @@
 import json
 import os
 import random
-import re
-from typing import List, Dict, Any, Tuple, Set
+from typing import List, Dict, Any
 
-class QueryGenerator:
+class SchemaQueryGenerator:
     """
     Enhanced class to generate SQL queries covering most SQL features.
     """

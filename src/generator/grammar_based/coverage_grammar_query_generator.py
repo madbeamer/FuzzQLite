@@ -1,13 +1,12 @@
-import random
 from typing import Union, Set, Optional, List
 
-from fuzzer.grammar_fuzzer import GrammarFuzzer
+from generator.grammar_based.grammar_query_generator import GrammarQueryGenerator
 
-from utils. derivation_tree import DerivationTree, expansion_key, Expansion
+from generator.grammar_based.utils.derivation_tree import DerivationTree, expansion_key, Expansion
 
-from utils.grammar import START_SYMBOL, nonterminals
+from generator.grammar_based.utils.grammar import START_SYMBOL, nonterminals
 
-class GrammarCoverageFuzzer(GrammarFuzzer):
+class CoverageGrammarQueryGenerator(GrammarQueryGenerator):
     """Produce from grammars, aiming for coverage of all expansions."""
 
     def __init__(self, *args, **kwargs) -> None:

@@ -5,7 +5,6 @@ import string
 import shutil
 import json
 import re
-import subprocess
 from typing import List, Dict
 
 class DBGenerator:

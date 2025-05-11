@@ -1,11 +1,11 @@
 import inspect
 from typing import Set, List, Any, Dict, Callable, Iterator, Union, Optional, Tuple, cast
 
-from fuzzer.grammar_fuzzer import GrammarFuzzer
+from generator.grammar_based.grammar_query_generator import GrammarQueryGenerator
 
-from utils.derivation_tree import DerivationTree, is_nonterminal, all_terminals
+from generator.grammar_based.utils.derivation_tree import DerivationTree, is_nonterminal, all_terminals
 
-from utils.grammar import (
+from generator.grammar_based.utils.grammar import (
     Grammar,
     Expansion,
     exp_pre_expansion_function,
@@ -18,7 +18,7 @@ class RestartExpansionException(Exception):
     pass
 
 
-class GeneratorGrammarFuzzer(GrammarFuzzer):
+class PrePostGrammarQueryGenerator(GrammarQueryGenerator):
     def __init__(self, grammar: Grammar, replacement_attempts: int = 10,
                  **kwargs) -> None:
         super().__init__(grammar, **kwargs)
@@ -77,20 +77,6 @@ class GeneratorGrammarFuzzer(GrammarFuzzer):
             children = [(repr(result), [])]
 
         return children
-    
-    # def fuzz_tree(self) -> DerivationTree:
-    #     self.reset_generators()
-    #     return super().fuzz_tree()
-
-    # def fuzz_tree(self) -> DerivationTree:
-    #     while True:
-    #         # This is fuzz_tree() as defined above
-    #         tree = super().fuzz_tree()
-    #         (symbol, children) = tree
-    #         result, new_children = self.run_post_functions(tree)
-    #         if not isinstance(result, bool) or result:
-    #             return (symbol, new_children)
-    #         self.restart_expansion()
 
     def fuzz_tree(self) -> DerivationTree:
         self.replacement_attempts_counter = self.replacement_attempts

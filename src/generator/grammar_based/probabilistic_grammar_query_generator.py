@@ -1,11 +1,11 @@
 import random
 from typing import List, Dict, Optional, Set, cast, Any
 
-from fuzzer.grammar_fuzzer import GrammarFuzzer
+from generator.grammar_based.grammar_query_generator import GrammarQueryGenerator
 
-from utils.grammar import Grammar, Expansion, exp_opt, exp_string, is_valid_grammar, START_SYMBOL
+from generator.grammar_based.utils.grammar import Grammar, Expansion, exp_opt, exp_string, is_valid_grammar, START_SYMBOL
 
-from utils.derivation_tree import DerivationTree, all_terminals
+from generator.grammar_based.utils.derivation_tree import DerivationTree, all_terminals
 
 def exp_prob(expansion: Expansion) -> float:
     """Return the options of an expansion"""
@@ -65,8 +65,8 @@ def is_valid_probabilistic_grammar(grammar: Grammar,
     return True
 
 
-class ProbabilisticGrammarFuzzer(GrammarFuzzer):
-    """A grammar-based fuzzer respecting probabilities in grammars."""
+class ProbabilisticGrammarQueryGenerator(GrammarQueryGenerator):
+    """A grammar-based query generator respecting probabilities in grammars."""
 
     def check_grammar(self) -> None:
         super().check_grammar()

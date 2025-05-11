@@ -1,7 +1,8 @@
 from typing import Sequence
 
-from utils.power_schedule import PowerSchedule
-from utils.seed import Seed
+from fuzzer.utils.power_schedule import PowerSchedule
+
+from fuzzer.utils.seed import Seed
 
 
 class AFLFastSchedule(PowerSchedule):

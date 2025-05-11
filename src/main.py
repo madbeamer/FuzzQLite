@@ -1,31 +1,32 @@
 import argparse
 import sys
 import os
+import random
 from typing import List
 
-# from fuzzer.greybox_fuzzer import GreyboxFuzzer
-from fuzzer.counting_greybox_fuzzer import CountingGreyboxFuzzer
+# Focus on maximizing SQLite3 source code path coverage
+from fuzzer.greybox_path_coverage_fuzzer import GreyboxPathCoverageFuzzer
+from runner.sqlite_path_coverage_runner import SQLitePathCoverageRunner
+from fuzzer.utils.afl_fast_schedule import AFLFastSchedule
 
-# from runner.sqlite_coverage_runner import SQLiteCoverageRunner
-from runner.counting_sqlite_coverage_runner import CountingSQLiteCoverageRunner
+# Focus on maximizing SQLite3 source code stmt coverage (more speed)
+from fuzzer.greybox_stmt_coverage_fuzzer import GreyboxStmtCoverageFuzzer
+from runner.sqlite_stmt_coverage_runner import SQLiteStmtCoverageRunner
+from fuzzer.utils.power_schedule import PowerSchedule
 
-# from mutator.sql_randomize_mutator import SQLRandomizeMutator
-from mutator.enhanced_sql_mutator import EnhancedSQLMutator
 from mutator.improved_mutator import ImprovedMutator
 
-from utils.generator.query_generator import QueryGenerator
-from utils.generator.db_generator import DBGenerator
-from utils.generator.seed_generator import SeedGenerator
+from generator.schema_based.schema_query_generator import SchemaQueryGenerator
+from generator.schema_based.db_generator import DBGenerator
+from generator.schema_based.seed_generator import SeedGenerator
 
-# from utils.power_schedule import PowerSchedule
-from utils.afl_fast_schedule import AFLFastSchedule
-from utils.grammar import USE_NAMES_BNF_SQL_GRAMMAR, trim_grammar
+from generator.grammar_based.utils.grammar import USE_NAMES_BNF_SQL_GRAMMAR, trim_grammar
 
-# from fuzzer.grammar_fuzzer import GrammarFuzzer
-# from fuzzer.generator_grammar_fuzzer import GeneratorGrammarFuzzer
-# from fuzzer.grammar_coverage_fuzzer import GrammarCoverageFuzzer
-# from fuzzer.probabilistic_grammar_coverage_fuzzer import ProbabilisticGrammarCoverageFuzzer
-from fuzzer.pggc_fuzzer import PGGCFuzzer
+# Focus on maximizing SQLite3 grammar coverage
+from generator.grammar_based.pggc_query_generator import PGGCQueryGenerator
+
+# Focus on fast generation
+from generator.grammar_based.pre_post_grammar_query_generator import PrePostGrammarQueryGenerator
 
 
 TARGET_SQLITE_PATHS = [
@@ -53,7 +54,7 @@ def parse_args(args: List[str]) -> argparse.Namespace:
     """
     parser = argparse.ArgumentParser(description="FuzzQLite - SQLite Fuzzer")
     
-    parser.add_argument( # FIXME: Add this logic later
+    parser.add_argument(
         "--seed",
         type=int,
         default=None,
@@ -63,20 +64,20 @@ def parse_args(args: List[str]) -> argparse.Namespace:
     parser.add_argument(
         "--trials",
         type=positive_int,
-        default=10,
-        help="Number of fuzzing trials to run (default: 10)"
+        default=1000,
+        help="Number of fuzzing trials to run (default: 1000)"
+    )
+
+    parser.add_argument(
+        "--path-coverage",
+        action="store_true",
+        help="Maximize source code path coverage (if not set, statement coverage is used)"
     )
     
     parser.add_argument(
-        "--output-dir",
-        default="bug_reproducers",
-        help="Directory to save bug reproducers (default: bug_reproducers)"
-    )
-    
-    parser.add_argument(
-        "--databases-dir",
-        default="databases",
-        help="Directory for generated databases (default: databases)"
+        "--grammar-coverage",
+        action="store_true",
+        help="Maximize SQLite grammar coverage (if not set, grammar coverage is not used)"
     )
     
     return parser.parse_args(args)
@@ -97,6 +98,10 @@ def main(args: List[str] = None) -> int:
     
     parsed_args = parse_args(args)
 
+    # Set global random seed if provided
+    if parsed_args.seed is not None:
+        random.seed(parsed_args.seed)
+
     # Check if all target SQLite paths exist
     for sqlite_path in TARGET_SQLITE_PATHS:
         if not os.path.exists(sqlite_path):
@@ -108,25 +113,13 @@ def main(args: List[str] = None) -> int:
         print(f"Error: Reference SQLite binary not found at {REFERENCE_SQLITE_PATH}")
         return 1
     
-    # Initialize Table Generation Fuzzer
-    # create_table_fuzzer = GeneratorGrammarFuzzer(
-    #     grammar=trim_grammar(SAVE_NAMES_CREATE_TABLE_BNF_SQL_GRAMMAR),
-    #     start_symbol="<start>",
-    #     min_nonterminals=0,
-    #     max_nonterminals=10,
-    #     # disp=True,
-    #     # log=True,
-    # )
-
-    # Initialize Random Query Generator Fuzzer which creates queries containing the same
-    # table names, column names, etc. as used in the Table Generation Fuzzer
-    
-    # Generate databases
-    db_generator = DBGenerator(db_dir=parsed_args.databases_dir)
+    ########################### Generate initial seed for mutator ###########################
+    # Generate databases (tables, columns, etc.)
+    db_generator = DBGenerator(db_dir="databases")
     db_paths = db_generator.generate_databases()
 
-    # Generate queries
-    query_generator = QueryGenerator()
+    # Generate seed queries based on the generated databases
+    query_generator = SchemaQueryGenerator()
     seed_queries = query_generator.generate_queries()
 
     # Generate seed pairs (SQL query, database path)
@@ -136,54 +129,79 @@ def main(args: List[str] = None) -> int:
         db_paths=db_paths
     )
 
-    # Create a runner for SQLite
-    # runner = SQLiteCoverageRunner(
-    #     target_sqlite_paths=TARGET_SQLITE_PATHS,
-    #     reference_sqlite_path=REFERENCE_SQLITE_PATH,
-    #     total_trials=parsed_args.trials,
-    #     timeout=3
-    # )
+    ########################### Initialize runner and fuzzer #############################
+    runner = None
+    fuzzer = None
 
-    runner = CountingSQLiteCoverageRunner(
-        target_sqlite_paths=TARGET_SQLITE_PATHS,
-        reference_sqlite_path=REFERENCE_SQLITE_PATH,
-        total_trials=parsed_args.trials,
-        timeout=3
-    )
+    # Create the runner for SQLite
+    if parsed_args.path_coverage:
+        grammar_based_query_generator = None
 
-    # min_nonterminals = 0
-    # max_nonterminals = 30
-    # Coverage: 48.11% after 20,000 queries (Time: 1:33:03)
-    query_fuzzer = PGGCFuzzer(
-        grammar=trim_grammar(USE_NAMES_BNF_SQL_GRAMMAR),
-        start_symbol="<start>",
-        min_nonterminals=0,
-        max_nonterminals=30,
-        # disp=True,
-        # log=True,
-    )
+        runner = SQLitePathCoverageRunner(
+            target_sqlite_paths=TARGET_SQLITE_PATHS,
+            reference_sqlite_path=REFERENCE_SQLITE_PATH,
+            total_trials=parsed_args.trials,
+            timeout=3
+        )
 
-    # fuzzer = GreyboxFuzzer(
-    #     seeds=seeds,
-    #     output_dir=parsed_args.output_dir,
-    #     schedule=PowerSchedule(),
-    #     query_fuzzer=query_fuzzer,
-    #     mutators=[EnhancedSQLMutator(), ImprovedMutator()],
-    #     min_mutations=1,
-    #     max_mutations=1 # FIXME: Currently just one consecutive mutation is done
-    # )
+        if parsed_args.grammar_coverage:
+            grammar_based_query_generator = PGGCQueryGenerator(
+                grammar=trim_grammar(USE_NAMES_BNF_SQL_GRAMMAR),
+                start_symbol="<start>",
+                min_nonterminals=0,
+                max_nonterminals=30
+            )
+        else:
+            grammar_based_query_generator = PrePostGrammarQueryGenerator(
+                grammar=trim_grammar(USE_NAMES_BNF_SQL_GRAMMAR),
+                start_symbol="<start>",
+                min_nonterminals=0,
+                max_nonterminals=30
+            )
 
-    fuzzer = CountingGreyboxFuzzer(
-        seeds=seeds,
-        output_dir=parsed_args.output_dir,
-        schedule=AFLFastSchedule(exponent=5),
-        query_fuzzer=query_fuzzer,
-        mutators=[ImprovedMutator()], # EnhancedSQLMutator()
-        min_mutations=1,
-        max_mutations=3
-    )
+        fuzzer = GreyboxPathCoverageFuzzer(
+            seeds=seeds,
+            schedule=AFLFastSchedule(exponent=5),
+            query_generator=grammar_based_query_generator,
+            mutators=[ImprovedMutator()],
+            min_mutations=1,
+            max_mutations=3
+        )
+    else:
+        grammar_based_query_generator = None
+
+        runner = SQLiteStmtCoverageRunner(
+            target_sqlite_paths=TARGET_SQLITE_PATHS,
+            reference_sqlite_path=REFERENCE_SQLITE_PATH,
+            total_trials=parsed_args.trials,
+            timeout=3
+        )
+
+        if parsed_args.grammar_coverage:
+            grammar_based_query_generator = PGGCQueryGenerator(
+                grammar=trim_grammar(USE_NAMES_BNF_SQL_GRAMMAR),
+                start_symbol="<start>",
+                min_nonterminals=0,
+                max_nonterminals=30
+            )
+        else:
+            grammar_based_query_generator = PrePostGrammarQueryGenerator(
+                grammar=trim_grammar(USE_NAMES_BNF_SQL_GRAMMAR),
+                start_symbol="<start>",
+                min_nonterminals=0,
+                max_nonterminals=30
+            )
+
+        fuzzer = GreyboxStmtCoverageFuzzer(
+            seeds=seeds,
+            schedule=PowerSchedule(),
+            query_generator=grammar_based_query_generator,
+            mutators=[ImprovedMutator()],
+            min_mutations=1,
+            max_mutations=3
+        )
     
-    # Run the fuzzer
+    ##################################### Run the fuzzer ######################################
     fuzzer.runs(runner=runner, trials=parsed_args.trials)
         
     return 0

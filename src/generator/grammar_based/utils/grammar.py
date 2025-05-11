@@ -380,11 +380,12 @@ def is_valid_grammar(grammar: Grammar,
         used_but_not_supported_opts = opts_used(
             grammar).difference(supported_opts)
         for opt in used_but_not_supported_opts:
-            print(
-                "warning: option " +
-                repr(opt) +
-                " is not supported",
-                file=sys.stderr)
+            # print(
+            #     "warning: option " +
+            #     repr(opt) +
+            #     " is not supported",
+            #     file=sys.stderr)
+            pass
 
     return used_nonterminals == defined_nonterminals and len(unreachable) == 0
 

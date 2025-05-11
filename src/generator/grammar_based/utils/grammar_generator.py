@@ -4,7 +4,8 @@ import re
 def parse_grammar_string(grammar_string):
     """
     Parse a grammar string and convert it to a dictionary with helper functions
-    for alternative expressions inside parentheses.
+    for alternative expressions inside parentheses. The input grammar string is
+    in ANTLR v4 format (see https://github.com/antlr/grammars-v4/tree/master/sql/sqlite).
     
     Args:
         grammar_string: String containing the grammar rules

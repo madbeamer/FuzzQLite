@@ -1,41 +1,39 @@
 import copy
 from typing import List, Set
 
-from fuzzer.generator_grammar_fuzzer import GeneratorGrammarFuzzer
-from fuzzer.probabilistic_grammar_coverage_fuzzer import ProbabilisticGrammarCoverageFuzzer
+from generator.grammar_based.pre_post_grammar_query_generator import PrePostGrammarQueryGenerator
+from generator.grammar_based.probabilistic_coverage_grammar_query_generator import ProbabilisticCoverageGrammarQueryGenerator
 
-from utils.grammar import Grammar
+from generator.grammar_based.utils.grammar import Grammar
 
-from utils.derivation_tree import DerivationTree
+from generator.grammar_based.utils.derivation_tree import DerivationTree
 
 
-class PGGCFuzzer(GeneratorGrammarFuzzer, ProbabilisticGrammarCoverageFuzzer):
-    """Probabilistic Generative Grammar- and Coverage-based Fuzzer.
-    Joins the features of GeneratorGrammarFuzzer and ProbabilisticGrammarCoverageFuzzer.
+class PGGCQueryGenerator(PrePostGrammarQueryGenerator, ProbabilisticCoverageGrammarQueryGenerator):
+    """Probabilistic Generative Grammar- and Coverage-based Query Generator.
+    Joins the features of PrePostGrammarQueryGenerator and ProbabilisticCoverageGrammarQueryGenerator.
     """
     
     def supported_opts(self) -> Set[str]:
-        return (super(GeneratorGrammarFuzzer, self).supported_opts() |
-                super(ProbabilisticGrammarCoverageFuzzer, self).supported_opts())
+        return (super(PrePostGrammarQueryGenerator, self).supported_opts() |
+                super(ProbabilisticCoverageGrammarQueryGenerator, self).supported_opts())
     
     def __init__(self, grammar: Grammar, *,
-                 start_symbol="<start>",  # Add this parameter explicitly
-                 replacement_attempts: int = 11, 
+                 start_symbol="<start>",
+                 replacement_attempts: int = 10, 
                  **kwargs) -> None:
         """Constructor.
-        `replacement_attempts` - see `GeneratorGrammarFuzzer` constructor.
-        All other keywords go into `ProbabilisticGrammarFuzzer`.
+        `replacement_attempts` - see `PrePostGrammarQueryGenerator` constructor.
+        All other keywords go into `ProbabilisticCoverageGrammarQueryGenerator`.
         """
-        # Initialize GeneratorGrammarFuzzer with correct parameters
-        GeneratorGrammarFuzzer.__init__(
+        PrePostGrammarQueryGenerator.__init__(
             self,
             grammar,
             start_symbol=start_symbol,  # Pass start_symbol explicitly
             replacement_attempts=replacement_attempts
         )
         
-        # Initialize ProbabilisticGrammarCoverageFuzzer
-        ProbabilisticGrammarCoverageFuzzer.__init__(
+        ProbabilisticCoverageGrammarQueryGenerator.__init__(
             self,
             grammar,
             start_symbol=start_symbol,  # Pass start_symbol explicitly

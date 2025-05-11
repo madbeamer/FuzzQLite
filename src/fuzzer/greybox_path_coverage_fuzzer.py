@@ -1,30 +1,31 @@
 import random
 from typing import List, Optional, Tuple, Dict, Set
 
-from runner.sqlite_coverage_runner import SQLiteCoverageRunner
-from runner.outcome import Outcome
-from runner.run_result import RunResult
+from runner.sqlite_path_coverage_runner import SQLitePathCoverageRunner
+from runner.utils.outcome import Outcome
+from runner.utils.run_result import RunResult
 
 from mutator.mutator import Mutator
 from mutator.identity_mutator import IdentitiyMutator
 
 from utils.bug_tracker import BugTracker
-from utils.power_schedule import PowerSchedule, getPathID
-from utils.seed import Seed
-from utils.coverage import Location
+from fuzzer.utils.seed import Seed
 
-from fuzzer.generator_grammar_fuzzer import GeneratorGrammarFuzzer
+from fuzzer.utils.afl_fast_schedule import AFLFastSchedule
+from fuzzer.utils.power_schedule import getPathID
+
+from generator.grammar_based.grammar_query_generator import GrammarQueryGenerator
+from generator.grammar_based.pggc_query_generator import PGGCQueryGenerator
 
 
-class CountingGreyboxFuzzer:
+class GreyboxPathCoverageFuzzer:
     """
     A coverage-guided mutational fuzzer that counts how often individual paths are exercised.
     """
     
     def __init__(self, seeds: List[Tuple[str, str]],
-                 output_dir: str,
-                 schedule: PowerSchedule,
-                 query_fuzzer: GeneratorGrammarFuzzer,
+                 schedule: AFLFastSchedule,
+                 query_generator: GrammarQueryGenerator,
                  mutators: Optional[List[Mutator]] = [IdentitiyMutator()],
                  min_mutations: int = 1,
                  max_mutations: int = 10) -> None:
@@ -34,9 +35,8 @@ class CountingGreyboxFuzzer:
         
         Args:
             seeds: List of (sql_query, db_path) pairs to mutate
-            output_dir: Directory to save the bug reproducers
             schedule: Power schedule to use for selecting seeds
-            query_fuzzer: Grammar-based fuzzer to generate new queries
+            query_generator: Grammar-based query generator to generate new queries
             mutators: List of mutator to use
             min_mutations: Minimum number of mutations to apply
             max_mutations: Maximum number of mutations to apply
@@ -47,11 +47,11 @@ class CountingGreyboxFuzzer:
         self.max_mutations = max_mutations
         self.schedule = schedule
 
-        self.query_fuzzer = query_fuzzer
+        self.query_generator = query_generator
         self.times_to_mutate = random.randint(1, 10)
         self.times_to_query_gen = random.randint(1, 10)
 
-        self.bug_tracker = BugTracker(output_dir=output_dir) # Create a bug tracker to save reproducers
+        self.bug_tracker = BugTracker() # Create a bug tracker to save reproducers
 
         self.reset()
 
@@ -73,8 +73,6 @@ class CountingGreyboxFuzzer:
             if run_result.outcome == Outcome.PASS and is_new_path:
             # FIXME: Currently it is added if it is a PASS for at least one target.
             # Might change this such that it is added iff it is a PASS for all targets
-            # OR: Maybe do not even check if it passes (see https://www.fuzzingbook.org/html/GreyboxFuzzer.html)
-                # Add the new path to the population
                 seed = Seed(data=self.inp)
                 seed.path_id = path_id
                 self.population.append(seed)
@@ -97,7 +95,7 @@ class CountingGreyboxFuzzer:
             self.times_to_mutate -= 1
         else:
             # Query generation
-            query = self.query_fuzzer.fuzz()
+            query = self.query_generator.fuzz()
             db_path = random.choice(['databases/edge_cases.db', 'databases/small.db'])
             self.inp = (query, db_path)
             self.times_to_query_gen -= 1
@@ -109,11 +107,11 @@ class CountingGreyboxFuzzer:
         
         return self.inp
     
-    def run(self, runner: SQLiteCoverageRunner) -> Tuple[Dict[str, RunResult], Set[Location]]:
+    def run(self, runner: SQLitePathCoverageRunner) -> Tuple[Dict[str, RunResult], Set[Tuple[str, int]]]:
         """Run `runner` with fuzz input"""
         return runner.run(self.fuzz())
 
-    def runs(self, runner: SQLiteCoverageRunner, trials: int) -> None:
+    def runs(self, runner: SQLitePathCoverageRunner, trials: int) -> None:
         try:
             # Start the fuzzing session with real-time display
             runner.start_fuzzing_session()
@@ -134,11 +132,12 @@ class CountingGreyboxFuzzer:
 
                 # Update the population
                 self.update_population(run_results, path_id, is_new_path)
-
-                print(len(self.population))
                 
                 # Record the results with bug tracking
-                runner.record_results(run_results=run_results, bug_tracker=self.bug_tracker)
+                grammar_coverage = None
+                if isinstance(self.query_generator, PGGCQueryGenerator):
+                    grammar_coverage = len(self.query_generator.expansion_coverage()) * 100 / len(self.query_generator.max_expansion_coverage())
+                runner.record_results(run_results=run_results, bug_tracker=self.bug_tracker, grammar_coverage=grammar_coverage)
                 
             # Finish the fuzzing session with final stats
             runner.finish_fuzzing_session()

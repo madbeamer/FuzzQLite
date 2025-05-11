@@ -3,7 +3,7 @@ import pickle
 import hashlib
 from typing import List, Dict, Sequence, Any
 
-from utils.seed import Seed
+from fuzzer.utils.seed import Seed
 
 def getPathID(coverage: Any) -> str:
     """Returns a unique hash for the covered statements"""

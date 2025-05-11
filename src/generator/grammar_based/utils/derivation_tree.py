@@ -4,7 +4,7 @@ import string
 from typing import List, Tuple, Optional, Any, Callable, Dict, Union
 from graphviz import Digraph
 
-from utils.grammar import is_nonterminal, Expansion
+from generator.grammar_based.utils.grammar import is_nonterminal, Expansion
 
 
 DerivationTree = Tuple[str, Optional[List[Any]]]
