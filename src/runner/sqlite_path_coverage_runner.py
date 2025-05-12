@@ -237,12 +237,22 @@ class SQLitePathCoverageRunner:
                 match_unsupported = re.search(r"(not currently supported)", err_msg)
                 match_syntax_error = re.search(r"(syntax error)", err_msg)
                 match_no_such_function = re.search(r"(no such function)", err_msg)
-                should_ignore = (match_unsupported or match_syntax_error or match_no_such_function)
+                match_parse_error = re.search(r"(Parse error)", err_msg)
+                should_ignore = (match_unsupported or match_syntax_error or match_no_such_function or match_parse_error)
                 if should_ignore:
                     outcome = Outcome.INVALID_QUERY
             elif not target_crashed and reference_crashed:
-                # Target succeeded, reference crashed
-                outcome = Outcome.REFERENCE_ERROR
+                 # Target succeeded, reference crashed
+                err_msg = reference_result['stderr']
+                match_unsupported = re.search(r"(not currently supported)", err_msg)
+                match_syntax_error = re.search(r"(syntax error)", err_msg)
+                match_no_such_function = re.search(r"(no such function)", err_msg)
+                match_parse_error = re.search(r"(Parse error)", err_msg)
+                should_ignore = (match_unsupported or match_syntax_error or match_no_such_function or match_parse_error)
+                if should_ignore:
+                    outcome = Outcome.INVALID_QUERY
+                else: 
+                    outcome = Outcome.REFERENCE_ERROR
                 self._restore_database(db_path)
             elif not target_crashed and not reference_crashed:
                 # Both succeeded, compare outputs
