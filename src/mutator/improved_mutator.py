@@ -15,7 +15,7 @@ class ImprovedMutator(Mutator):
     def __init__(self, schema_path: str = "databases/schema_info.json"):
         super().__init__()
 
-        self.weights = [0.2, 0.1, 0.1, 0.1, 0.2, 0.2, 0.1]
+        self.weights = [0.15, 0.1, 0.1, 0.1, 0.15, 0.15, 0.1, 0.15]
         
         self.sql_keywords = [
             "SELECT", "FROM", "WHERE", "GROUP BY", "HAVING", "ORDER BY",
@@ -80,17 +80,18 @@ class ImprovedMutator(Mutator):
         return (mutated_sql_query, db_path)
     
     def _reset(self) -> None:
-        self.weights = [0.2, 0.1, 0.1, 0.1, 0.2, 0.2, 0.1]
+        self.weights = [0.15, 0.1, 0.1, 0.1, 0.15, 0.15, 0.1, 0.15]
     
     def _find_strategy(self, sql_query: str, probabilities: list) -> str:
         strategies = [
-            self._change_numeric_value,
+            self._change_int_value,
             self._insert_keyword,
             self._modify_operator,
             self._insert_function,
             self._modify_strings,
             self._nest_select, 
-            self._modify_bools
+            self._modify_bools,
+            self._change_float_value
         ]
         if sum(self.weights) == 0:
             pragma = random.choice(self.pragma_statements)
@@ -98,7 +99,7 @@ class ImprovedMutator(Mutator):
         strategy = random.choices(strategies, k=1, weights=probabilities)[0]
         return strategy(sql_query)
     
-    def _change_numeric_value(self, input_data: str) -> str:
+    def _change_int_value(self, input_data: str) -> str:
         numbers = re.findall(r'\b\d+\b', input_data)
         if not numbers:
             self.weights[0] = 0.0
@@ -299,3 +300,30 @@ class ImprovedMutator(Mutator):
         # Replace just one occurrence (not all)
         parts = input_data.split(bool_to_modify, 1)
         return parts[0] + new_bool + parts[1]
+
+    def _change_float_value(self, input_data: str) -> str:
+        numbers = re.findall(r'\b\d+\.\d+\b', input_data)
+        if not numbers:
+            self.weights[7] = 0.0
+            return self._find_strategy(input_data, self.weights)
+            
+        num_to_change = random.choice(numbers)
+        
+        strategies = [
+            lambda x: f"json({str(x)})",
+            lambda x: str(-float(x)),          # Negate
+            lambda x: "Inf",
+            lambda x: "-Inf",          
+            lambda x: "-1e999",  
+            lambda x: "1.7976931348623157e+308",
+            lambda x: "4.9406564584124654e-324",         
+            lambda x: "0.0",                   # Zero
+            lambda x: "-0.0",                  # Negative Zero
+            lambda x: "NULL",
+            lambda x: f"x\'{str(x)}\'",  # Hexadecimal
+        ]
+        
+        new_num = random.choice(strategies)(num_to_change)
+        
+        parts = input_data.split(num_to_change, 1)
+        return parts[0] + new_num + parts[1]
