@@ -1220,8 +1220,6 @@ class SchemaQueryGenerator:
             """)
         
         # PRAGMA statements
-        queries.append("PRAGMA table_info(sqlite_master);")
-        
         if self.table_names:
             table = self._get_random_table()
             queries.append(f"PRAGMA table_info({table});")
