@@ -22,7 +22,7 @@ FuzzQLite is an automated testing tool developed as part of the Automated Softwa
 Clone the repository and navigate to the project directory:
 
 ```bash
-git clone https://github.com/athenawng/FuzzQLite
+git clone https://github.com/madbeamer/FuzzQLite
 cd FuzzQLite
 ```
 
