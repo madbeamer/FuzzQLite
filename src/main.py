@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import argparse
 import sys
 import os
@@ -141,7 +143,7 @@ def main(args: List[str] = None) -> int:
             target_sqlite_paths=TARGET_SQLITE_PATHS,
             reference_sqlite_path=REFERENCE_SQLITE_PATH,
             total_trials=parsed_args.trials,
-            timeout=3
+            timeout=0.5
         )
 
         if parsed_args.grammar_coverage:
@@ -165,7 +167,7 @@ def main(args: List[str] = None) -> int:
             query_generator=grammar_based_query_generator,
             mutators=[ImprovedMutator()],
             min_mutations=1,
-            max_mutations=3
+            max_mutations=1
         )
     else:
         grammar_based_query_generator = None
@@ -174,7 +176,7 @@ def main(args: List[str] = None) -> int:
             target_sqlite_paths=TARGET_SQLITE_PATHS,
             reference_sqlite_path=REFERENCE_SQLITE_PATH,
             total_trials=parsed_args.trials,
-            timeout=3
+            timeout=0.5
         )
 
         if parsed_args.grammar_coverage:
@@ -198,7 +200,7 @@ def main(args: List[str] = None) -> int:
             query_generator=grammar_based_query_generator,
             mutators=[ImprovedMutator()],
             min_mutations=1,
-            max_mutations=3
+            max_mutations=1
         )
     
     ##################################### Run the fuzzer ######################################
