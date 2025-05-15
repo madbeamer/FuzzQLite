@@ -293,7 +293,8 @@ class SQLitePathCoverageRunner:
                     match_syntax_error = re.search(r"(syntax error)", err_msg)
                     match_no_such_function = re.search(r"(no such function)", err_msg)
                     match_parse_error = re.search(r"(Parse error)", err_msg)
-                    should_ignore = (match_unsupported or match_syntax_error or match_no_such_function or match_parse_error)
+                    match_no_query_solution = re.search(r"(no query solution)", err_msg) and "INDEXED BY" in sql_query
+                    should_ignore = (match_unsupported or match_syntax_error or match_no_such_function or match_parse_error or match_no_query_solution)
                     if should_ignore:
                         outcome = Outcome.INVALID_QUERY
                     else: 
