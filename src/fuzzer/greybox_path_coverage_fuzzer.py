@@ -136,7 +136,7 @@ class GreyboxPathCoverageFuzzer:
                 # Record the results with bug tracking
                 grammar_coverage = None
                 if isinstance(self.query_generator, PGGCQueryGenerator):
-                    grammar_coverage = len(self.query_generator.expansion_coverage()) * 100 / len(self.query_generator.max_expansion_coverage())
+                    grammar_coverage = self.query_generator.get_grammar_coverage_percentage()
                 runner.record_results(run_results=run_results, bug_tracker=self.bug_tracker, grammar_coverage=grammar_coverage)
                 
             # Finish the fuzzing session with final stats
