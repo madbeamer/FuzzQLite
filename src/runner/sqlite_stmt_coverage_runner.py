@@ -1,10 +1,10 @@
 import subprocess
-import tempfile
 import shutil
 import os
 import time
 import datetime
 import re
+import gc
 from typing import List, Tuple, Dict, Any
 
 from rich.console import Console
@@ -43,7 +43,6 @@ class SQLiteStmtCoverageRunner:
         self.target_sqlite_paths = target_sqlite_paths
         self.reference_sqlite_path = reference_sqlite_path
         self.timeout = timeout
-        self.temp_dir = tempfile.mkdtemp(prefix="fuzzqlite_")
         self.console = Console()
         
         # Initialize stats for each target SQLite path
@@ -120,6 +119,7 @@ class SQLiteStmtCoverageRunner:
             'coverage': None,
         }
 
+        process = None
         try:
             process = subprocess.Popen(
                 [sqlite_path, db_path],
@@ -130,17 +130,61 @@ class SQLiteStmtCoverageRunner:
             )
             
             result['stdout'], result['stderr'] = process.communicate(input=modified_query, timeout=self.timeout)
-
             result['returncode'] = -1 if result['stderr'] else 0
-    
-        except subprocess.TimeoutExpired as e:
+
+        except subprocess.TimeoutExpired:
+            # Make sure to kill the process if timeout occurs
+            if process:
+                # First try to terminate gracefully
+                process.terminate()
+                # Give it a moment to terminate
+                try:
+                    process.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    # Force kill if it doesn't terminate
+                    process.kill()
+                    process.wait()
+                    
             result['returncode'] = -1
-            result['stdout'] = str(e.stdout)
-            result['stderr'] = str(e.stderr)
+            result['stderr'] = f"Process timed out after {self.timeout} seconds"
+            
+            # Try to collect any output that might be available
+            try:
+                if process:
+                    stdout, stderr = process.communicate(timeout=1)
+                    if stdout:
+                        result['stdout'] = stdout
+                    if stderr:
+                        result['stderr'] += "\n" + stderr
+            except:
+                pass  # Ignore any errors in collecting leftover output
+                
         except Exception as e:
+            # Make sure to kill the process in case of any other exception
+            if process and process.poll() is None:
+                try:
+                    process.terminate()
+                    process.wait(timeout=1)
+                except:
+                    # Force kill if needed
+                    try:
+                        process.kill()
+                        process.wait()
+                    except:
+                        pass  # Last resort, ignore errors
+                        
             result['returncode'] = -1
             result['stderr'] = str(e)
-            
+                
+        finally:
+            # Final cleanup to ensure process is terminated
+            if process and process.poll() is None:
+                try:
+                    process.kill()
+                    process.wait()
+                except:
+                    pass  # Ignore errors in final cleanup
+                    
         return result
     
     def _normalize_output(self, output: str, query: str) -> str:
@@ -206,87 +250,90 @@ class SQLiteStmtCoverageRunner:
         Returns:
             A dict with target SQLite paths as keys and RunResult as values
         """
-        sql_query, db_path = inp
+        try:
+            sql_query, db_path = inp
 
-        # Run on reference version
-        reference_result = self._run_sqlite(self.reference_sqlite_path, sql_query, db_path)
-        reference_sqlite_version = self.reference_sqlite_path.split('-')[-1] if '-' in self.reference_sqlite_path else "unknown"
-        
-        # Run on target versions
-        run_results = {}
-        for target_sqlite_path in self.target_sqlite_paths:
-            target_result = self._run_sqlite(target_sqlite_path, sql_query, db_path)
-            target_sqlite_version = target_sqlite_path.split('-')[-1] if '-' in target_sqlite_path else "unknown"
-        
-            # Determine outcome based on:
-            # CRASH: target crashed (non-zero return code) AND reference did not crash (return code is 0)
-            # LOGIC_BUG: both target and reference did not crash (return code 0) AND results differ
-            # REFERENCE_ERROR: target did not crash (return code 0) AND reference crashed (non-zero return code)
-            # INVALID_QUERY: both target and reference crashed (non-zero return code)
-            # PASS: both target and reference did not crash (return code 0) AND results match
+            # Run on reference version
+            reference_result = self._run_sqlite(self.reference_sqlite_path, sql_query, db_path)
+            reference_sqlite_version = self.reference_sqlite_path.split('-')[-1] if '-' in self.reference_sqlite_path else "unknown"
             
-            target_crashed = target_result['returncode'] != 0
-            reference_crashed = reference_result['returncode'] != 0
-
-            if target_crashed and not reference_crashed:
-                # Target crashed, reference succeeded - this is a true crash, restore the database
-                outcome = Outcome.CRASH
-                self._restore_database(db_path)
-                
-                err_msg = target_result['stderr']
-                match_unsupported = re.search(r"(not currently supported)", err_msg)
-                match_syntax_error = re.search(r"(syntax error)", err_msg)
-                match_no_such_function = re.search(r"(no such function)", err_msg)
-                match_parse_error = re.search(r"(Parse error)", err_msg)
-                should_ignore = (match_unsupported or match_syntax_error or match_no_such_function or match_parse_error)
-                if should_ignore:
-                    outcome = Outcome.INVALID_QUERY
-            elif not target_crashed and reference_crashed:
-                # Target succeeded, reference crashed
-                err_msg = reference_result['stderr']
-                match_unsupported = re.search(r"(not currently supported)", err_msg)
-                match_syntax_error = re.search(r"(syntax error)", err_msg)
-                match_no_such_function = re.search(r"(no such function)", err_msg)
-                match_parse_error = re.search(r"(Parse error)", err_msg)
-                should_ignore = (match_unsupported or match_syntax_error or match_no_such_function or match_parse_error)
-                if should_ignore:
-                    outcome = Outcome.INVALID_QUERY
-                else: 
-                    outcome = Outcome.REFERENCE_ERROR
-                self._restore_database(db_path)
-            elif not target_crashed and not reference_crashed:
-                # Both succeeded, compare outputs
-                normalized_output_target = self._normalize_output(target_result['stdout'], sql_query)
-                normalized_output_reference = self._normalize_output(reference_result['stdout'], sql_query)
-                
-                if normalized_output_target != normalized_output_reference:
-                    outcome = Outcome.LOGIC_BUG
-                else:
-                    outcome = Outcome.PASS
-            else:
-                # Both crashed - this is an invalid query, not a true crash, do not restore
-                outcome = Outcome.INVALID_QUERY
-
-            run_result = RunResult(
-                outcome=outcome,
-                sql_query=sql_query,
-                db_path=db_path,
-                target_sqlite_version=target_sqlite_version,
-                target_result=target_result,
-                reference_sqlite_version=reference_sqlite_version,
-                reference_result=reference_result)
+            # Run on target versions
+            run_results = {}
+            for target_sqlite_path in self.target_sqlite_paths:
+                target_result = self._run_sqlite(target_sqlite_path, sql_query, db_path)
+                target_sqlite_version = target_sqlite_path.split('-')[-1] if '-' in target_sqlite_path else "unknown"
             
-            run_results[target_sqlite_path] = run_result
+                # Determine outcome based on:
+                # CRASH: target crashed (non-zero return code) AND reference did not crash (return code is 0)
+                # LOGIC_BUG: both target and reference did not crash (return code 0) AND results differ
+                # REFERENCE_ERROR: target did not crash (return code 0) AND reference crashed (non-zero return code)
+                # INVALID_QUERY: both target and reference crashed (non-zero return code)
+                # PASS: both target and reference did not crash (return code 0) AND results match
+                
+                target_crashed = target_result['returncode'] != 0
+                reference_crashed = reference_result['returncode'] != 0
 
-        # Add coverage information to all RunResult.target_result
-        # Note: We need to do this after all runs to make sure that the gcov files were updated (/home/test/sqlite/sqlite-3.26.0 needs to be run)
-        coverage = read_gcov_coverage_percentage()
-        for target_sqlite_path in self.target_sqlite_paths:
-            run_result = run_results[target_sqlite_path]
-            run_result.target_result['coverage'] = coverage
+                if target_crashed and not reference_crashed:
+                    # Target crashed, reference succeeded - this is a true crash, restore the database
+                    err_msg = target_result['stderr']
+                    match_unsupported = re.search(r"(not currently supported)", err_msg)
+                    match_syntax_error = re.search(r"(syntax error)", err_msg)
+                    match_no_such_function = re.search(r"(no such function)", err_msg)
+                    match_parse_error = re.search(r"(Parse error)", err_msg)
+                    should_ignore = (match_unsupported or match_syntax_error or match_no_such_function or match_parse_error)
+                    if should_ignore:
+                        outcome = Outcome.INVALID_QUERY
+                    else:
+                        outcome = Outcome.CRASH
+                        self._restore_database(db_path)
+                elif not target_crashed and reference_crashed:
+                    # Target succeeded, reference crashed
+                    err_msg = reference_result['stderr']
+                    match_unsupported = re.search(r"(not currently supported)", err_msg)
+                    match_syntax_error = re.search(r"(syntax error)", err_msg)
+                    match_no_such_function = re.search(r"(no such function)", err_msg)
+                    match_parse_error = re.search(r"(Parse error)", err_msg)
+                    should_ignore = (match_unsupported or match_syntax_error or match_no_such_function or match_parse_error)
+                    if should_ignore:
+                        outcome = Outcome.INVALID_QUERY
+                    else: 
+                        outcome = Outcome.REFERENCE_ERROR
+                    self._restore_database(db_path)
+                elif not target_crashed and not reference_crashed:
+                    # Both succeeded, compare outputs
+                    normalized_output_target = self._normalize_output(target_result['stdout'], sql_query)
+                    normalized_output_reference = self._normalize_output(reference_result['stdout'], sql_query)
                     
-        # return run_results, coverage
-        return run_results
+                    if normalized_output_target != normalized_output_reference:
+                        outcome = Outcome.LOGIC_BUG
+                    else:
+                        outcome = Outcome.PASS
+                else:
+                    # Both crashed - this is an invalid query, not a true crash, do not restore
+                    outcome = Outcome.INVALID_QUERY
+
+                run_result = RunResult(
+                    outcome=outcome,
+                    sql_query=sql_query,
+                    db_path=db_path,
+                    target_sqlite_version=target_sqlite_version,
+                    target_result=target_result,
+                    reference_sqlite_version=reference_sqlite_version,
+                    reference_result=reference_result)
+                
+                run_results[target_sqlite_path] = run_result
+
+            # Add coverage information to all RunResult.target_result
+            # Note: We need to do this after all runs to make sure that the gcov files were updated (/home/test/sqlite/sqlite-3.26.0 needs to be run)
+            coverage = read_gcov_coverage_percentage()
+            for target_sqlite_path in self.target_sqlite_paths:
+                run_result = run_results[target_sqlite_path]
+                run_result.target_result['coverage'] = coverage
+                        
+            # return run_results, coverage
+            return run_results
+        finally:
+            self.cleanup_resources()
     
     def start_fuzzing_session(self):
         """Start a new fuzzing session."""
@@ -355,6 +402,14 @@ class SQLiteStmtCoverageRunner:
         # Add whitespace padding at the top
         layout["padding"].update("\n")
         
+        # Write stats to JSON file periodically
+        if self.current_trial > 0:
+            # For the first 1000 queries, write every 100 queries
+            # After 1000 queries, write every 1000 queries
+            if (self.current_trial < 1000 and self.current_trial % 100 == 0) or \
+               (self.current_trial >= 1000 and self.current_trial % 1000 == 0):
+                self._write_stats_to_json()
+        
         # Create the stats part with fixed size, including target and reference information
         if self.start_time:
             elapsed = time.time() - self.start_time
@@ -377,7 +432,7 @@ class SQLiteStmtCoverageRunner:
                 f"[bold]Stmt Coverage:[/] {f'{self.coverage:.2f}%' if isinstance(self.coverage, (int, float)) else self.coverage}\n"
                 f"[bold]Grammar Coverage:[/] {f'{self.grammar_coverage:.2f}%' if isinstance(self.grammar_coverage, (int, float)) else self.grammar_coverage}\n"
                 f"[bold]Time:[/] {self._format_time(elapsed)}\n"
-                f"[bold]Speed:[/] {trials_per_sec:.2f}/s\n"
+                f"[bold]Speed:[/] {trials_per_sec:.2f} queries/s (per version)\n"
                 f"[bold]ETA:[/] {self._estimate_completion()}"
             )
             stats_panel = Panel(
@@ -472,6 +527,77 @@ class SQLiteStmtCoverageRunner:
             layout["content"]["trials"].update(Panel("No results yet", title="Recent Trials"))
         
         return layout
+        
+    def _write_stats_to_json(self):
+        """Write current stats to a JSON file."""
+        import json
+        import os
+        from datetime import datetime
+        
+        # Create stats directory if it doesn't exist
+        stats_dir = os.path.join("/app/databases")
+        os.makedirs(stats_dir, exist_ok=True)
+        
+        # Generate timestamp for the filename
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"stats_{timestamp}_{self.current_trial}.json"
+        filepath = os.path.join(stats_dir, filename)
+        
+        # Prepare stats data
+        if self.start_time:
+            elapsed = time.time() - self.start_time
+            trials_per_sec = self._calculate_rate()
+        else:
+            elapsed = 0
+            trials_per_sec = 0
+        
+        # Get target versions
+        target_versions = []
+        for path in self.target_sqlite_paths:
+            version = path.split('-')[-1] if '-' in path and path.split('-')[-1] else 'unknown'
+            target_versions.append(version)
+        
+        # Get reference version
+        ref_version = self.reference_sqlite_path.split('-')[-1] if '-' in self.reference_sqlite_path and self.reference_sqlite_path.split('-')[-1] else 'unknown'
+        
+        # Build stats dictionary
+        stats_data = {
+            "timestamp": datetime.now().isoformat(),
+            "current_trial": self.current_trial,
+            "total_trials": self.total_trials,
+            "progress_percentage": round(self.current_trial/self.total_trials*100, 1),
+            "elapsed_seconds": elapsed,
+            "elapsed_formatted": self._format_time(elapsed),
+            "queries_per_second": round(trials_per_sec, 2),
+            "coverage": self.coverage,
+            "grammar_coverage": self.grammar_coverage,
+            "target_versions": target_versions,
+            "reference_version": ref_version,
+            "results": {}
+        }
+        
+        # Add detailed results for each target
+        for target_path in self.target_sqlite_paths:
+            version = target_path.split('-')[-1] if '-' in target_path else "unknown"
+            version_stats = self.stats[target_path]
+            
+            total_version_trials = sum(version_stats.values())
+            stats_data["results"][version] = {
+                "total_trials": total_version_trials,
+                "outcomes": {}
+            }
+            
+            # Add counts and percentages for each outcome
+            for outcome, count in version_stats.items():
+                percentage = (count / total_version_trials) * 100 if total_version_trials > 0 else 0
+                stats_data["results"][version]["outcomes"][outcome] = {
+                    "count": count,
+                    "percentage": round(percentage, 1)
+                }
+        
+        # Write to JSON file
+        with open(filepath, 'w') as f:
+            json.dump(stats_data, f, indent=2)
     
     def record_results(self, run_results: Dict[str, RunResult], bug_tracker: BugTracker, grammar_coverage: float) -> None:
         """
@@ -527,6 +653,18 @@ class SQLiteStmtCoverageRunner:
         # Stop the live display
         if self.live_display:
             self.live_display.stop()
+
+    def cleanup_resources(self):
+        """
+        Explicitly clean up resources to prevent memory leaks.
+        """
+        # Clear the run_results list if it's too large
+        if hasattr(self, 'run_results') and len(self.run_results) > 100:
+            # Keep only the most recent results
+            self.run_results = self.run_results[-50:]
+        
+        # Force garbage collection
+        gc.collect()
     
     def cleanup(self):
         """Clean up temporary directories."""
@@ -535,6 +673,3 @@ class SQLiteStmtCoverageRunner:
                 self.live_display.stop()
             except:
                 pass
-            
-        if os.path.exists(self.temp_dir):
-            shutil.rmtree(self.temp_dir)
