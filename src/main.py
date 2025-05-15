@@ -143,7 +143,7 @@ def main(args: List[str] = None) -> int:
             target_sqlite_paths=TARGET_SQLITE_PATHS,
             reference_sqlite_path=REFERENCE_SQLITE_PATH,
             total_trials=parsed_args.trials,
-            timeout=0.5
+            timeout=1
         )
 
         if parsed_args.grammar_coverage:
@@ -176,7 +176,7 @@ def main(args: List[str] = None) -> int:
             target_sqlite_paths=TARGET_SQLITE_PATHS,
             reference_sqlite_path=REFERENCE_SQLITE_PATH,
             total_trials=parsed_args.trials,
-            timeout=0.5
+            timeout=1
         )
 
         if parsed_args.grammar_coverage:
